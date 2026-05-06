@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 
 import { Toaster } from "@/components/ui/sonner"
+import { AuthGuard } from "@/features/auth/components/auth-guard"
 import HomePage from "@/features/home/routes/index"
 import LoginPage from "@/features/auth/routes/login"
 import SignupPage from "@/features/auth/routes/signup"
@@ -13,7 +14,14 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route
+          path="/dashboard"
+          element={
+            <AuthGuard>
+              <DashboardPage />
+            </AuthGuard>
+          }
+        />
       </Routes>
       <Toaster />
     </BrowserRouter>

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -33,6 +33,7 @@ type SignupFormValues = z.infer<typeof signupSchema>
 
 function SignupPage() {
   const [submitting, setSubmitting] = useState(false)
+  const navigate = useNavigate()
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -56,7 +57,7 @@ function SignupPage() {
     }
 
     toast.success("Conta criada com sucesso")
-    // Redirect pro onboarding virá no Bloco 8 (AuthGuard)
+    navigate("/dashboard", { replace: true })
   }
 
   return (

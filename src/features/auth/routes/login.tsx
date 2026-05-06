@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -33,6 +33,7 @@ type LoginFormValues = z.infer<typeof loginSchema>
 
 function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
+  const navigate = useNavigate()
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -56,7 +57,7 @@ function LoginPage() {
     }
 
     toast.success("Login realizado com sucesso")
-    // Redirect virá no Bloco 8 (AuthGuard)
+    navigate("/dashboard", { replace: true })
   }
 
   return (
