@@ -6,6 +6,7 @@ import HomePage from "@/features/home/routes/index"
 import LoginPage from "@/features/auth/routes/login"
 import SignupPage from "@/features/auth/routes/signup"
 import DashboardPage from "@/features/dashboard/routes/dashboard"
+import OnboardingPage from "@/features/onboarding/routes/onboarding"
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/onboarding" element={<OnboardingPage />} />
         <Route
           path="/dashboard"
           element={
