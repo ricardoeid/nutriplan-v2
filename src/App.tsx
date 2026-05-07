@@ -8,6 +8,7 @@ import SignupPage from "@/features/auth/routes/signup"
 import DashboardPage from "@/features/dashboard/routes/dashboard"
 import OnboardingPage from "@/features/onboarding/routes/onboarding"
 import { OnboardingGuard } from "@/features/onboarding/components/onboarding-guard"
+import ProfilePage from "@/features/profile/routes/profile"
 
 function App() {
   return (
@@ -29,6 +30,14 @@ function App() {
           element={
             <AuthGuard>
               <DashboardPage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <AuthGuard>
+              <ProfilePage />
             </AuthGuard>
           }
         />

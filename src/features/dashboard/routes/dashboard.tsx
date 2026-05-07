@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/features/auth/hooks/useAuth"
 import { supabase } from "@/lib/supabase"
 
 function DashboardPage() {
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
 
   const { data: count, isLoading, error } = useQuery({
     queryKey: ["foods-count"],
@@ -22,8 +23,8 @@ function DashboardPage() {
     <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center gap-4 p-8">
       <div className="absolute top-4 right-4 flex items-center gap-3">
         <span className="text-sm text-muted-foreground">{user?.email}</span>
-        <Button variant="outline" size="sm" onClick={signOut}>
-          Sair
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/profile">Perfil</Link>
         </Button>
       </div>
 
