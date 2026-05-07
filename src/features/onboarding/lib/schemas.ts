@@ -5,17 +5,18 @@ import { calculateAge } from '@/lib/macros'
 // CRITICAL: valores devem ficar em sincronia com @/lib/macros.ts
 // (constantes ACTIVITY_LEVELS / GOALS), com os enums do Postgres
 // (activity_level, goal) e com o CHECK de profiles.sex.
-export const sexSchema = z.enum(['M', 'F'])
+export const sexSchema = z.enum(['M', 'F'], {
+  message: 'Selecione uma opção',
+})
 
-export const activityLevelSchema = z.enum([
-  'sedentary',
-  'light',
-  'moderate',
-  'active',
-  'very_active',
-])
+export const activityLevelSchema = z.enum(
+  ['sedentary', 'light', 'moderate', 'active', 'very_active'],
+  { message: 'Selecione um nível de atividade' },
+)
 
-export const goalSchema = z.enum(['cut', 'maintain', 'bulk'])
+export const goalSchema = z.enum(['cut', 'maintain', 'bulk'], {
+  message: 'Selecione um objetivo',
+})
 
 // === Schemas por step ===
 //
