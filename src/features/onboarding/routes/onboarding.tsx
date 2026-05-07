@@ -1,3 +1,6 @@
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -9,6 +12,7 @@ import { Form } from '@/components/ui/form'
 import { Progress } from '@/components/ui/progress'
 
 import { useOnboardingForm } from '../hooks/use-onboarding-form'
+import { useCompleteOnboarding } from '../hooks/use-complete-onboarding'
 import { StepBasicInfo } from '../components/step-basic-info'
 import { StepBody } from '../components/step-body'
 import { StepActivity } from '../components/step-activity'
@@ -17,6 +21,9 @@ import { StepMacrosReview } from '../components/step-macros-review'
 import { StepReview } from '../components/step-review'
 
 function OnboardingPage() {
+  const navigate = useNavigate()
+  const completeOnboarding = useCompleteOnboarding()
+
   const {
     form,
     currentStep,
@@ -27,8 +34,6 @@ function OnboardingPage() {
     progressPercent,
   } = useOnboardingForm()
 
-  // Steps 1-4 já recebem `form` (Blocos 5 e 6). Steps 5 e 6 ainda são
-  // placeholders e serão atualizados no Bloco 7.
   const renderStep = () => {
     switch (currentStep) {
       case 1:
@@ -40,13 +45,37 @@ function OnboardingPage() {
       case 4:
         return <StepGoal form={form} />
       case 5:
-        return <StepMacrosReview />
+        return <StepMacrosReview form={form} />
       case 6:
-        return <StepReview />
+        return <StepReview form={form} />
       default:
         return null
     }
   }
+
+  // Click do botão "Concluir" no step 6: valida tudo via RHF + zod
+  // (failsafe — em uso normal já passou step a step), depois dispara
+  // a mutation. Toast + navigate em success; toast em erro mantém
+  // o user no step 6 pra poder tentar de novo.
+  const handleConcluir = async () => {
+    const ok = await form.trigger()
+    if (!ok) {
+      toast.error('Há campos pendentes. Volte e revise.')
+      return
+    }
+
+    completeOnboarding.mutate(form.getValues(), {
+      onSuccess: () => {
+        toast.success('Tudo pronto!')
+        navigate('/dashboard', { replace: true })
+      },
+      onError: (err) => {
+        toast.error(err instanceof Error ? err.message : 'Erro ao salvar')
+      },
+    })
+  }
+
+  const handlePrimaryClick = isLastStep ? handleConcluir : validateAndGoNext
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -58,9 +87,6 @@ function OnboardingPage() {
           </p>
         </CardHeader>
         <Form {...form}>
-          {/* form HTML envolve o conteúdo só pra agrupar acessivelmente.
-              Submit "real" é via botão Próximo chamando validateAndGoNext;
-              não usamos onSubmit do <form> aqui. */}
           <form onSubmit={(e) => e.preventDefault()}>
             <CardContent className="min-h-32">{renderStep()}</CardContent>
             <CardFooter className="flex justify-between">
@@ -68,12 +94,20 @@ function OnboardingPage() {
                 type="button"
                 variant="outline"
                 onClick={goBack}
-                disabled={isFirstStep}
+                disabled={isFirstStep || completeOnboarding.isPending}
               >
                 Voltar
               </Button>
-              <Button type="button" onClick={validateAndGoNext}>
-                {isLastStep ? 'Concluir' : 'Próximo'}
+              <Button
+                type="button"
+                onClick={handlePrimaryClick}
+                disabled={completeOnboarding.isPending}
+              >
+                {isLastStep
+                  ? completeOnboarding.isPending
+                    ? 'Salvando...'
+                    : 'Concluir'
+                  : 'Próximo'}
               </Button>
             </CardFooter>
           </form>
