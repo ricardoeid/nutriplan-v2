@@ -66,6 +66,31 @@ export const goalChoiceSchema = z.object({
   goal: goalSchema,
 })
 
+// === Targets (apenas usado no /profile/edit pelo MacroEditor) ===
+// Optional pq onboarding não passa esses (são calculados no submit).
+export const targetsSchema = z.object({
+  calorieTarget: z
+    .number()
+    .positive('Calorias deve ser positivo')
+    .max(10000, 'Valor de calorias muito alto')
+    .optional(),
+  proteinTarget: z
+    .number()
+    .nonnegative('Proteína não pode ser negativa')
+    .max(1000, 'Valor de proteína muito alto')
+    .optional(),
+  carbTarget: z
+    .number()
+    .nonnegative('Carboidrato não pode ser negativo')
+    .max(2000, 'Valor de carboidrato muito alto')
+    .optional(),
+  fatTarget: z
+    .number()
+    .nonnegative('Gordura não pode ser negativa')
+    .max(500, 'Valor de gordura muito alto')
+    .optional(),
+})
+
 // === Schema agregado ===
 //
 // Construído por composição (.shape spread). Mudar um campo num step
@@ -76,6 +101,7 @@ export const onboardingFullSchema = z.object({
   ...bodySchema.shape,
   ...activitySchema.shape,
   ...goalChoiceSchema.shape,
+  ...targetsSchema.shape,
 })
 
 // === Tipos inferidos ===
@@ -84,4 +110,5 @@ export type BasicInfoData = z.infer<typeof basicInfoSchema>
 export type BodyData = z.infer<typeof bodySchema>
 export type ActivityData = z.infer<typeof activitySchema>
 export type GoalChoiceData = z.infer<typeof goalChoiceSchema>
+export type TargetsData = z.infer<typeof targetsSchema>
 export type OnboardingFullData = z.infer<typeof onboardingFullSchema>

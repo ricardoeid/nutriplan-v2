@@ -21,10 +21,10 @@ interface UpdateProfileInput {
 }
 
 // Mutation pra editar profile depois do onboarding inicial.
-// Diferenças vs useCompleteOnboarding:
-//   - recalculateTargets é opcional (checkbox no form)
-//   - weight_logs é UPSERT (vs INSERT puro), só quando peso mudou
-//   - mantém onboarding_completed=true (não envia esse campo)
+// Lógica de targets:
+//   - recalculateTargets=true  → calcula via fórmulas (ignora MacroEditor)
+//   - recalculateTargets=false → usa valores manuais do MacroEditor
+//                                (vindo em data.calorie/protein/carb/fat Target)
 export function useUpdateProfile() {
   const queryClient = useQueryClient()
 
@@ -40,7 +40,7 @@ export function useUpdateProfile() {
         throw new Error('Usuário não autenticado')
       }
 
-      // Monta o objeto base do UPDATE com campos sempre atualizáveis
+      // Campos sempre atualizados (independem de recalc)
       const updatePayload: ProfileUpdate = {
         display_name: data.displayName,
         sex: data.sex,
@@ -51,8 +51,8 @@ export function useUpdateProfile() {
         goal: data.goal,
       }
 
-      // Se recalcular ligado, sobrescreve targets calculados
       if (recalculateTargets) {
+        // Calcular via fórmulas
         const age = calculateAge(new Date(data.birthDate))
         const bmr = calculateBMR({
           sex: data.sex,
@@ -70,6 +70,21 @@ export function useUpdateProfile() {
         updatePayload.protein_target = targets.proteinTarget
         updatePayload.carb_target = targets.carbTarget
         updatePayload.fat_target = targets.fatTarget
+      } else {
+        // Usar valores editados manualmente, se vieram. Se algum não veio,
+        // não enviar (banco mantém o atual).
+        if (typeof data.calorieTarget === 'number') {
+          updatePayload.calorie_target = data.calorieTarget
+        }
+        if (typeof data.proteinTarget === 'number') {
+          updatePayload.protein_target = data.proteinTarget
+        }
+        if (typeof data.carbTarget === 'number') {
+          updatePayload.carb_target = data.carbTarget
+        }
+        if (typeof data.fatTarget === 'number') {
+          updatePayload.fat_target = data.fatTarget
+        }
       }
 
       // 1. UPDATE profiles
