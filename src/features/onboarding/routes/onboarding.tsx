@@ -27,8 +27,8 @@ function OnboardingPage() {
     progressPercent,
   } = useOnboardingForm()
 
-  // Steps 1 e 2 já recebem `form` (Bloco 5). Steps 3-6 ainda são
-  // placeholders e serão atualizados nos blocos 6 e 7.
+  // Steps 1-4 já recebem `form` (Blocos 5 e 6). Steps 5 e 6 ainda são
+  // placeholders e serão atualizados no Bloco 7.
   const renderStep = () => {
     switch (currentStep) {
       case 1:
@@ -36,9 +36,9 @@ function OnboardingPage() {
       case 2:
         return <StepBody form={form} />
       case 3:
-        return <StepActivity />
+        return <StepActivity form={form} />
       case 4:
-        return <StepGoal />
+        return <StepGoal form={form} />
       case 5:
         return <StepMacrosReview />
       case 6:
