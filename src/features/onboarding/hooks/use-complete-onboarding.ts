@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { supabase } from '@/lib/supabase'
 import {
@@ -13,11 +13,18 @@ import { type OnboardingFullData } from '../lib/schemas'
 //   1. UPDATE profiles (todos os campos + onboarding_completed=true)
 //   2. INSERT weight_logs (peso atual, data = hoje pelo default do banco)
 //
+// Em sucesso, invalida cache do profile pra que o AuthGuard receba o
+// valor atualizado (onboarding_completed=true) e libere /dashboard.
+// Sem isso, o cache stale enviaria o user de volta pra /onboarding em
+// loop logo após o navigate.
+//
 // Tratamento de erro: se UPDATE falhar, aborta. Se INSERT falhar mas
 // UPDATE já passou, considera onboarding completo (a row de peso é
 // nice-to-have). Estado consistente o suficiente; transação real fica
 // pra fase futura se virar problema.
 export function useCompleteOnboarding() {
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationFn: async (data: OnboardingFullData) => {
       const {
@@ -81,6 +88,11 @@ export function useCompleteOnboarding() {
       }
 
       return { userId: user.id }
+    },
+    onSuccess: (_, _data) => {
+      // Invalida o cache pra forçar re-fetch do profile.
+      // queryKey precisa bater com o usado em useProfile: ['profile', userId]
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 }

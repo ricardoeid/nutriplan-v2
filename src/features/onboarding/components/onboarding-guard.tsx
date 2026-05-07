@@ -4,12 +4,12 @@ import { Navigate } from "react-router-dom"
 import { useAuth } from "@/features/auth/hooks/useAuth"
 import { useProfile } from "@/features/profile/hooks/use-profile"
 
-// Estados:
+// Espelho do AuthGuard, mas pra rota /onboarding:
 //   sem user                          → /login
 //   profile carregando                → "Carregando..."
-//   onboarding_completed = false/null → /onboarding
-//   onboarding_completed = true       → renderiza children
-export function AuthGuard({ children }: { children: ReactNode }) {
+//   onboarding_completed = true       → /dashboard (já fez, não repete)
+//   onboarding_completed = false/null → renderiza onboarding
+export function OnboardingGuard({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth()
   const { profile, loading: profileLoading } = useProfile()
 
@@ -33,8 +33,8 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     )
   }
 
-  if (!profile?.onboarding_completed) {
-    return <Navigate to="/onboarding" replace />
+  if (profile?.onboarding_completed) {
+    return <Navigate to="/dashboard" replace />
   }
 
   return <>{children}</>
