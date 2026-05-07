@@ -9,6 +9,7 @@ import DashboardPage from "@/features/dashboard/routes/dashboard"
 import OnboardingPage from "@/features/onboarding/routes/onboarding"
 import { OnboardingGuard } from "@/features/onboarding/components/onboarding-guard"
 import ProfilePage from "@/features/profile/routes/profile"
+import ProfileEditPage from "@/features/profile/routes/profile-edit"
 
 function App() {
   return (
@@ -38,6 +39,14 @@ function App() {
           element={
             <AuthGuard>
               <ProfilePage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/profile/edit"
+          element={
+            <AuthGuard>
+              <ProfileEditPage />
             </AuthGuard>
           }
         />

@@ -109,8 +109,8 @@ function ProfilePage() {
             <Link to="/dashboard">Voltar</Link>
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" disabled>
-              Editar
+            <Button variant="outline" asChild>
+              <Link to="/profile/edit">Editar</Link>
             </Button>
             <Button variant="destructive" onClick={() => signOut()}>
               Sair
