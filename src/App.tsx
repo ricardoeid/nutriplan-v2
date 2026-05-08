@@ -11,6 +11,7 @@ import { OnboardingGuard } from "@/features/onboarding/components/onboarding-gua
 import ProfilePage from "@/features/profile/routes/profile"
 import ProfileEditPage from "@/features/profile/routes/profile-edit"
 import FoodsPage from "@/features/foods/routes/foods"
+import FoodNewPage from "@/features/foods/routes/food-new"
 
 function App() {
   return (
@@ -56,6 +57,14 @@ function App() {
           element={
             <AuthGuard>
               <FoodsPage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/foods/new"
+          element={
+            <AuthGuard>
+              <FoodNewPage />
             </AuthGuard>
           }
         />
