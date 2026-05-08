@@ -17,16 +17,31 @@ interface ToggleFavoriteVars {
 
 interface SnapshotEntry {
   queryKey: readonly unknown[]
-  data: FoodSearchResult[]
+  data: unknown
+}
+
+// Shape esperado do cache `foods/detail/:id` — definido em use-food.ts.
+// Duplicado aqui em vez de importado pra evitar import cíclico
+// (use-food → use-toggle-favorite no caso de detail logar e favoritar).
+interface FoodDetailCache {
+  food: { id: string; [k: string]: unknown }
+  isFavorite: boolean
+  isHidden: boolean
+  useCount: number
+  lastUsed: string | null
 }
 
 // Mutation pra alternar `user_food_prefs.is_favorite`. Usa upsert com
 // onConflict='user_id,food_id' (existe UNIQUE constraint nessa dupla),
 // o que cobre tanto criar quanto atualizar a pref.
 //
-// Optimistic update varre TODOS os caches de busca (search keys variam
-// por query/filter/limit) e atualiza a row do food em todas. Em caso
-// de erro, rollback completo via snapshot.
+// Optimistic update toca dois tipos de cache distintos:
+//   - 'foods/search/...'  → array de FoodSearchResult; map+update do flag
+//   - 'foods/detail/:id'  → objeto { food, isFavorite, ... }; spread+update
+//
+// Não dá pra usar setQueriesData genérico em foodKeys.all porque os dois
+// formatos são incompatíveis (.map quebra em objeto). Cada shape tem
+// seu próprio update.
 export function useToggleFavorite() {
   const queryClient = useQueryClient()
   const { user } = useAuth()
@@ -59,20 +74,27 @@ export function useToggleFavorite() {
       // Cancela refetches em vôo pra não sobrescrever o optimistic
       await queryClient.cancelQueries({ queryKey: foodKeys.all })
 
-      // Snapshot de TODOS os caches de busca antes de mexer
+      // Snapshot de TODOS os caches da feature antes de mexer.
+      // Guarda chave + data crus pra rollback fiel sem assumir shape.
       const snapshots: SnapshotEntry[] = []
-      const queries = queryClient.getQueriesData<FoodSearchResult[]>({
+      const allQueries = queryClient.getQueriesData({
         queryKey: foodKeys.all,
       })
-      for (const [key, data] of queries) {
-        if (data) {
+      for (const [key, data] of allQueries) {
+        if (data !== undefined) {
           snapshots.push({ queryKey: key, data })
         }
       }
 
-      // Aplica update otimista em todos os caches
+      // === Update 1: caches de busca (arrays) ===
+      // Filtra explicitamente pelo segundo elemento da key = 'search'.
+      // Usa setQueriesData com filter mais específico pra não cair em
+      // queries de detail por engano.
       queryClient.setQueriesData<FoodSearchResult[]>(
-        { queryKey: foodKeys.all },
+        {
+          queryKey: foodKeys.all,
+          predicate: (query) => query.queryKey[1] === 'search',
+        },
         (old) => {
           if (!old) return old
           return old.map((food) =>
@@ -83,11 +105,21 @@ export function useToggleFavorite() {
         },
       )
 
+      // === Update 2: cache de detail (objeto) ===
+      // Só atualiza se for o detail desse foodId específico.
+      queryClient.setQueryData<FoodDetailCache>(
+        foodKeys.detail(foodId),
+        (old) => {
+          if (!old) return old
+          return { ...old, isFavorite: nextValue }
+        },
+      )
+
       return { snapshots }
     },
 
     onError: (error, _vars, context) => {
-      // Rollback usando snapshots
+      // Rollback usando snapshots (preserva shape original de cada query)
       if (context?.snapshots) {
         for (const { queryKey, data } of context.snapshots) {
           queryClient.setQueryData(queryKey, data)
