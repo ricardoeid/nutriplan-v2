@@ -6,6 +6,14 @@ import type { FoodSearchResult } from '../lib/types'
 
 interface FoodRowProps {
   food: FoodSearchResult
+  // Disparado ao clicar a estrela. Parent recebe o food atual e
+  // decide o que fazer (toggle no banco). Padrão "render dumb,
+  // logic up" — row não conhece a mutation.
+  onToggleFavorite: (food: FoodSearchResult) => void
+  // True enquanto a mutation tá pendente — desabilita o botão pra
+  // evitar duplo clique. Optimistic já reflete o estado novo no
+  // food.is_favorite, então o ícone visual já tá correto.
+  isFavoritePending?: boolean
 }
 
 // Mapeamento source → badge. Cores via classes Tailwind literais
@@ -53,7 +61,11 @@ function formatGrams(value: number): string {
   })
 }
 
-export function FoodRow({ food }: FoodRowProps) {
+export function FoodRow({
+  food,
+  onToggleFavorite,
+  isFavoritePending = false,
+}: FoodRowProps) {
   const badge = getSourceBadge(food.source)
   const kcalDisplay = Math.round(food.kcal_per_100g).toLocaleString('pt-BR')
 
@@ -63,12 +75,6 @@ export function FoodRow({ food }: FoodRowProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium">{food.name}</span>
-            {food.is_favorite && (
-              <Star
-                aria-label="Favorito"
-                className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400"
-              />
-            )}
           </div>
           {food.brand && (
             <div className="truncate text-xs text-muted-foreground">
@@ -76,14 +82,38 @@ export function FoodRow({ food }: FoodRowProps) {
             </div>
           )}
         </div>
-        <span
-          className={cn(
-            'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide',
-            badge.className,
-          )}
-        >
-          {badge.label}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+              badge.className,
+            )}
+          >
+            {badge.label}
+          </span>
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(food)}
+            disabled={isFavoritePending}
+            aria-label={
+              food.is_favorite ? 'Remover dos favoritos' : 'Favoritar'
+            }
+            aria-pressed={food.is_favorite}
+            className={cn(
+              'rounded-sm p-1 transition-colors disabled:opacity-50',
+              food.is_favorite
+                ? 'text-amber-500 hover:bg-amber-500/10'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            <Star
+              className={cn(
+                'h-4 w-4',
+                food.is_favorite && 'fill-current',
+              )}
+            />
+          </button>
+        </div>
       </div>
       <div className="mt-1 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">

@@ -13,6 +13,11 @@ interface FoodResultsListProps {
   // True quando há query ou filtro aplicado (filter !== 'all'). Quando
   // false, mostra placeholder convidando o user a interagir.
   searchActive: boolean
+  // Callback de favoritar — propagado pra cada FoodRow.
+  onToggleFavorite: (food: FoodSearchResult) => void
+  // ID do food com mutation pendente (pra desabilitar a estrela
+  // específica). Null = nada pendente.
+  pendingFavoriteFoodId: string | null
 }
 
 const SKELETON_COUNT = 5
@@ -37,6 +42,8 @@ export function FoodResultsList({
   fetching,
   error,
   searchActive,
+  onToggleFavorite,
+  pendingFavoriteFoodId,
 }: FoodResultsListProps) {
   if (error) {
     const message =
@@ -78,7 +85,12 @@ export function FoodResultsList({
     <div className="space-y-3">
       <ul className="space-y-1">
         {results.map((food) => (
-          <FoodRow key={food.id} food={food} />
+          <FoodRow
+            key={food.id}
+            food={food}
+            onToggleFavorite={onToggleFavorite}
+            isFavoritePending={pendingFavoriteFoodId === food.id}
+          />
         ))}
       </ul>
       <p className="flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
