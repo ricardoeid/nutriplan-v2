@@ -10,6 +10,7 @@ import OnboardingPage from "@/features/onboarding/routes/onboarding"
 import { OnboardingGuard } from "@/features/onboarding/components/onboarding-guard"
 import ProfilePage from "@/features/profile/routes/profile"
 import ProfileEditPage from "@/features/profile/routes/profile-edit"
+import FoodsPage from "@/features/foods/routes/foods"
 
 function App() {
   return (
@@ -47,6 +48,14 @@ function App() {
           element={
             <AuthGuard>
               <ProfileEditPage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/foods"
+          element={
+            <AuthGuard>
+              <FoodsPage />
             </AuthGuard>
           }
         />
