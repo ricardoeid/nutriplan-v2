@@ -7,18 +7,30 @@
 
 export type FoodSource = 'taco' | 'open_food_facts' | 'custom' | 'composite'
 
-// Filtros da rota /foods. Mapeiam pro argumento `p_filter` da RPC
-// `search_foods`. Os valores exatos aceitos pela RPC ainda não foram
-// confirmados no SQL — o B1 só usa 'all' (que é equivalente a não passar
-// p_filter); B3 vai validar empiricamente os outros e ajustar se preciso.
+// Filtros mapeados pro argumento `p_filter` da RPC `search_foods`.
+// Valores literais confirmados em `pg_get_functiondef('search_foods')`:
+//
+//   'all'       → tudo do "mundo" do user (TACO + custom + composite +
+//                 OFFs já usados pelo próprio user). EXCLUI OFFs
+//                 cacheados por outros users que o user nunca tocou.
+//   'taco'      → só source='taco'
+//   'off'       → só source='open_food_facts' (display: "Produtos")
+//   'mine'      → só foods criadas pelo user (custom + composite)
+//   'favorites' → user_food_prefs.is_favorite = true
+//   'recent'    → user_food_prefs.last_used IS NOT NULL
+//   'frequent'  → user_food_prefs.use_count > 0
+//
+// Comportamento com query vazia: a RPC suporta `p_query = ''` — todos
+// os filtros (exceto 'all') retornam resultados sem texto. 'all' sem
+// query não tem critério nenhum, então o parent trata como idle.
 export type FoodSearchFilter =
-  | 'all' // sem filtro — passa undefined pro p_filter
+  | 'all'
   | 'taco'
-  | 'products' // open_food_facts
-  | 'mine' // custom + composite do user
-  | 'favorites' // is_favorite=true
-  | 'recent' // ordenado por last_used desc
-  | 'frequent' // ordenado por use_count desc
+  | 'off'
+  | 'mine'
+  | 'favorites'
+  | 'recent'
+  | 'frequent'
 
 // Resultado de uma row de `search_foods`. NÃO usa o tipo gerado pelo
 // Supabase (`Database['public']['Functions']['search_foods']['Returns']`)

@@ -10,9 +10,9 @@ interface FoodResultsListProps {
   // `error` vem como `unknown` porque é o tipo do TanStack Query e não
   // queremos forçar cast no parent. O componente normaliza pra string.
   error: unknown
-  // `hasQuery` reflete se o INPUT atual (não o debounced) tem texto.
-  // Usado pra não piscar "digite um alimento" enquanto user digita.
-  hasQuery: boolean
+  // True quando há query ou filtro aplicado (filter !== 'all'). Quando
+  // false, mostra placeholder convidando o user a interagir.
+  searchActive: boolean
 }
 
 const SKELETON_COUNT = 5
@@ -36,7 +36,7 @@ export function FoodResultsList({
   loading,
   fetching,
   error,
-  hasQuery,
+  searchActive,
 }: FoodResultsListProps) {
   if (error) {
     const message =
@@ -48,10 +48,10 @@ export function FoodResultsList({
     )
   }
 
-  if (!hasQuery) {
+  if (!searchActive) {
     return (
       <p className="text-sm text-muted-foreground">
-        Digite um alimento pra buscar.
+        Digite um alimento ou escolha um filtro acima.
       </p>
     )
   }

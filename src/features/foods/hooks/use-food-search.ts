@@ -16,23 +16,29 @@ interface UseFoodSearchParams {
 // (ranking server-side, exclusão de hidden, gating de cached OFF).
 //
 // Comportamento:
-//   - query vazia (após trim) → não dispara a RPC, retorna [] e
-//     loading=false. Evita flood de "todos os alimentos" no input.
-//   - filter='all' → não envia p_filter pra RPC (deixa banco aplicar
-//     default). Garante que 'all' seja sempre o estado neutro
-//     independente do que a RPC trate como string vazia / 'all' / null.
+//   - filter='all' + query vazia → não dispara a RPC (sem critério)
+//   - filter !== 'all' → sempre dispara, mesmo com query vazia
+//     (ex: clicar "Frequentes" sem digitar mostra os mais usados)
 //   - p_user_id é REQUIRED na assinatura da RPC; pegamos via useAuth.
 //     Se não tem user, query fica disabled (sem erro silencioso).
+//
+// Limit default 30 alinha com o default da RPC (`p_limit DEFAULT 30`).
 //
 // Retorno segue padrão dos outros hooks de query do projeto
 // (useProfile etc.): nomes amigáveis, não o objeto cru do TanStack Query.
 export function useFoodSearch(params: UseFoodSearchParams) {
-  const { query, filter = 'all', limit = 50 } = params
+  const { query, filter = 'all', limit = 30 } = params
   const { user } = useAuth()
   const userId = user?.id
 
   const trimmedQuery = query.trim()
-  const enabled = !!userId && trimmedQuery.length > 0
+
+  // `enabled` libera a query se há texto OU se um filtro foi escolhido.
+  // Filtro != 'all' já é critério de seleção válido por si só.
+  // 'all' sem query = sem critério → idle.
+  // Cálculo espelhado em foods.tsx (`searchActive`); manter sincronizado.
+  const enabled =
+    !!userId && (trimmedQuery.length > 0 || filter !== 'all')
 
   const result = useQuery({
     queryKey: foodKeys.search({ query: trimmedQuery, filter, limit }),
@@ -43,9 +49,8 @@ export function useFoodSearch(params: UseFoodSearchParams) {
       const { data, error } = await supabase.rpc('search_foods', {
         p_user_id: userId,
         p_query: trimmedQuery,
+        p_filter: filter,
         p_limit: limit,
-        // 'all' = estado neutro, não passa p_filter
-        ...(filter !== 'all' && { p_filter: filter }),
       })
 
       if (error) throw error
