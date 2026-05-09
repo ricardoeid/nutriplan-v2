@@ -12,6 +12,8 @@ import ProfilePage from "@/features/profile/routes/profile"
 import ProfileEditPage from "@/features/profile/routes/profile-edit"
 import FoodsPage from "@/features/foods/routes/foods"
 import FoodNewPage from "@/features/foods/routes/food-new"
+import FoodDetailPage from "@/features/foods/routes/food-detail"
+import FoodEditPage from "@/features/foods/routes/food-edit"
 
 function App() {
   return (
@@ -65,6 +67,22 @@ function App() {
           element={
             <AuthGuard>
               <FoodNewPage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/foods/:id"
+          element={
+            <AuthGuard>
+              <FoodDetailPage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/foods/:id/edit"
+          element={
+            <AuthGuard>
+              <FoodEditPage />
             </AuthGuard>
           }
         />

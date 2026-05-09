@@ -83,3 +83,21 @@ export type CustomFoodFormData = z.input<typeof customFoodSchema>
 export type CustomFoodParsedData = z.output<typeof customFoodSchema>
 
 export type FoodInputMode = CustomFoodFormData['mode']
+
+// === Schema de EDIÇÃO ===
+//
+// Edit usa SEMPRE per-100g (sem dual-mode). Razão: o banco guarda
+// canônico em per-100g e não dá pra reverter a multiplicação sem
+// perder informação (ex: 30g→100g = factor 3.33; 33g→100g = factor 3.0;
+// resultado per-100g pode ser idêntico mas serving original diferente).
+// Editar partindo do canônico é mais previsível.
+
+export const editFoodSchema = baseSchema.extend({
+  kcalPer100g: kcalSchema,
+  proteinPer100g: macroGramsSchema,
+  carbPer100g: macroGramsSchema,
+  fatPer100g: macroGramsSchema,
+})
+
+export type EditFoodFormData = z.input<typeof editFoodSchema>
+export type EditFoodParsedData = z.output<typeof editFoodSchema>
