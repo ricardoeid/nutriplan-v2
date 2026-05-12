@@ -13,6 +13,8 @@ import {
 } from '@/lib/utils-format'
 import type { ActivityLevel, Goal, Sex } from '@/lib/macros'
 
+import { HiddenFoodsSection } from '@/features/foods/components/hidden-foods-section'
+
 function ProfilePage() {
   const { signOut } = useAuth()
   const { profile, loading } = useProfile()
@@ -61,9 +63,14 @@ function ProfilePage() {
     ['Gordura', profile.fat_target != null ? `${profile.fat_target} g` : '--'],
   ]
 
+  // Layout: items-start + py-8 em vez de items-center porque a página
+  // agora pode crescer (HiddenFoodsSection expandida) e items-center
+  // cortaria o topo em telas pequenas. py-8 dá respiro em telas
+  // grandes onde o conteúdo é curto.
+  // max-w-2xl alinha com /foods pra consistência visual.
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-lg">
+    <div className="min-h-screen flex items-start justify-center p-4 py-8">
+      <Card className="w-full max-w-2xl">
         <CardHeader>
           <h1 className="text-2xl font-semibold">Seu perfil</h1>
         </CardHeader>
@@ -101,6 +108,13 @@ function ProfilePage() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section>
+            <h2 className="text-sm font-medium text-muted-foreground mb-2">
+              Preferências
+            </h2>
+            <HiddenFoodsSection />
           </section>
         </CardContent>
 

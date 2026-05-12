@@ -1,14 +1,14 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Pencil, Star } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Pencil, Star } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
 import { useFood } from '../hooks/use-food'
+import { useToggleHide } from '../hooks/use-toggle-hide'
 
-// Display de source pro detail. Mesma convenção das rows mas com
-// rótulos um pouco mais formais.
 const SOURCE_LABELS: Record<string, string> = {
   taco: 'TACO (base brasileira)',
   open_food_facts: 'Open Food Facts',
@@ -32,7 +32,8 @@ function formatKcal(value: number | null | undefined): string {
 export default function FoodDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { food, isFavorite, isOwn, loading, error } = useFood(id)
+  const { food, isFavorite, isHidden, isOwn, loading, error } = useFood(id)
+  const toggleHide = useToggleHide()
 
   if (loading) {
     return (
@@ -55,6 +56,34 @@ export default function FoodDetailPage() {
             : 'Alimento não encontrado.'}
         </p>
       </div>
+    )
+  }
+
+  // Click no botão Ocultar/Desocultar. Mesma lógica do foods.tsx —
+  // dispara mutation e mostra toast com undo de 5s.
+  const handleToggleHide = () => {
+    toggleHide.mutate(
+      { foodId: food.id, currentIsHidden: isHidden },
+      {
+        onSuccess: () => {
+          const wasHidden = isHidden
+          const message = wasHidden
+            ? `"${food.name}" desocultado`
+            : `"${food.name}" ocultado`
+          toast.success(message, {
+            duration: 5000,
+            action: {
+              label: 'Desfazer',
+              onClick: () => {
+                toggleHide.mutate({
+                  foodId: food.id,
+                  currentIsHidden: !wasHidden,
+                })
+              },
+            },
+          })
+        },
+      },
     )
   }
 
@@ -81,15 +110,47 @@ export default function FoodDetailPage() {
           <ArrowLeft className="mr-1 h-4 w-4" />
           Voltar
         </Button>
-        {isOwn && (
-          <Button asChild size="sm">
-            <Link to={`/foods/${food.id}/edit`}>
-              <Pencil className="mr-1 h-4 w-4" />
-              Editar
-            </Link>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleHide}
+            disabled={toggleHide.isPending}
+          >
+            {isHidden ? (
+              <>
+                <Eye className="mr-1 h-4 w-4" />
+                Desocultar
+              </>
+            ) : (
+              <>
+                <EyeOff className="mr-1 h-4 w-4" />
+                Ocultar
+              </>
+            )}
           </Button>
-        )}
+          {isOwn && (
+            <Button asChild size="sm">
+              <Link to={`/foods/${food.id}/edit`}>
+                <Pencil className="mr-1 h-4 w-4" />
+                Editar
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
+
+      {isHidden && (
+        <p
+          className={cn(
+            'rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs',
+            'text-amber-800',
+          )}
+        >
+          Este alimento está oculto. Não aparece na busca até você
+          desocultar.
+        </p>
+      )}
 
       <Card>
         <CardHeader className="space-y-1">
@@ -109,7 +170,6 @@ export default function FoodDetailPage() {
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {/* Bloco principal: macros por porção */}
           <section>
             <h2 className="mb-2 text-sm font-medium">
               Por porção: {servingDisplay}
@@ -150,7 +210,6 @@ export default function FoodDetailPage() {
             </dl>
           </section>
 
-          {/* Bloco secundário: per 100g (canônico) */}
           <section>
             <h2 className="mb-2 text-sm font-medium text-muted-foreground">
               Por 100 g (referência)
@@ -183,7 +242,6 @@ export default function FoodDetailPage() {
             </dl>
           </section>
 
-          {/* Detalhes adicionais (fibra, açúcar, sódio, etc) */}
           {(food.fiber_per_100g != null ||
             food.sugar_per_100g != null ||
             food.saturated_fat_per_100g != null ||

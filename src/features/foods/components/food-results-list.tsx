@@ -7,17 +7,12 @@ interface FoodResultsListProps {
   results: FoodSearchResult[]
   loading: boolean
   fetching: boolean
-  // `error` vem como `unknown` porque é o tipo do TanStack Query e não
-  // queremos forçar cast no parent. O componente normaliza pra string.
   error: unknown
-  // True quando há query ou filtro aplicado (filter !== 'all'). Quando
-  // false, mostra placeholder convidando o user a interagir.
   searchActive: boolean
-  // Callback de favoritar — propagado pra cada FoodRow.
   onToggleFavorite: (food: FoodSearchResult) => void
-  // ID do food com mutation pendente (pra desabilitar a estrela
-  // específica). Null = nada pendente.
+  onHide: (food: FoodSearchResult) => void
   pendingFavoriteFoodId: string | null
+  pendingHideFoodId: string | null
 }
 
 const SKELETON_COUNT = 5
@@ -43,7 +38,9 @@ export function FoodResultsList({
   error,
   searchActive,
   onToggleFavorite,
+  onHide,
   pendingFavoriteFoodId,
+  pendingHideFoodId,
 }: FoodResultsListProps) {
   if (error) {
     const message =
@@ -89,7 +86,9 @@ export function FoodResultsList({
             key={food.id}
             food={food}
             onToggleFavorite={onToggleFavorite}
+            onHide={onHide}
             isFavoritePending={pendingFavoriteFoodId === food.id}
+            isHidePending={pendingHideFoodId === food.id}
           />
         ))}
       </ul>

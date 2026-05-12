@@ -3,6 +3,7 @@ import { Star } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
+import { FoodRowMenu } from './food-row-menu'
 import type { FoodSearchResult } from '../lib/types'
 
 interface FoodRowProps {
@@ -11,10 +12,12 @@ interface FoodRowProps {
   // decide o que fazer (toggle no banco). Padrão "render dumb,
   // logic up" — row não conhece a mutation.
   onToggleFavorite: (food: FoodSearchResult) => void
-  // True enquanto a mutation tá pendente — desabilita o botão pra
-  // evitar duplo clique. Optimistic já reflete o estado novo no
-  // food.is_favorite, então o ícone visual já tá correto.
+  // Disparado ao clicar "Ocultar" no menu •••.
+  onHide: (food: FoodSearchResult) => void
+  // True enquanto a mutation favorite tá pendente.
   isFavoritePending?: boolean
+  // True enquanto a mutation hide tá pendente — desabilita menu.
+  isHidePending?: boolean
 }
 
 const SOURCE_BADGES: Record<
@@ -60,17 +63,14 @@ function formatGrams(value: number): string {
 export function FoodRow({
   food,
   onToggleFavorite,
+  onHide,
   isFavoritePending = false,
+  isHidePending = false,
 }: FoodRowProps) {
   const badge = getSourceBadge(food.source)
   const kcalDisplay = Math.round(food.kcal_per_100g).toLocaleString('pt-BR')
 
-  // Estrutura: <li> wrapper > <Link> cobrindo a linha clicável
-  // + <button> da estrela posicionado relative pra capturar o click
-  // ANTES de propagar pro Link. e.preventDefault no botão da estrela
-  // impede a navegação quando user só queria favoritar.
   const handleStarClick = (e: React.MouseEvent) => {
-    // Impede que o click chegue ao Link (ou seja, não navega)
     e.preventDefault()
     e.stopPropagation()
     onToggleFavorite(food)
@@ -93,7 +93,7 @@ export function FoodRow({
               </div>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1">
             <span
               className={cn(
                 'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide',
@@ -124,6 +124,10 @@ export function FoodRow({
                 )}
               />
             </button>
+            <FoodRowMenu
+              onHide={() => onHide(food)}
+              disabled={isHidePending}
+            />
           </div>
         </div>
         <div className="mt-1 text-xs text-muted-foreground">

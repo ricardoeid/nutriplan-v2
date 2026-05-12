@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { useFoodSearch } from '../hooks/use-food-search'
 import { useDebouncedValue } from '../hooks/use-debounced-value'
 import { useToggleFavorite } from '../hooks/use-toggle-favorite'
+import { useToggleHide } from '../hooks/use-toggle-hide'
 import { FoodSearchBar } from '../components/food-search-bar'
 import { FoodFilterPills } from '../components/food-filter-pills'
 import { FoodResultsList } from '../components/food-results-list'
@@ -21,6 +23,7 @@ export default function FoodsPage() {
     filter,
   })
   const toggleFavorite = useToggleFavorite()
+  const toggleHide = useToggleHide()
 
   const searchActive = query.trim().length > 0 || filter !== 'all'
 
@@ -31,9 +34,40 @@ export default function FoodsPage() {
     })
   }
 
+  // Ocultar food: aplica mutation + toast com botão Desfazer.
+  // Toast Sonner aceita `action: { label, onClick }` que renderiza
+  // um botão no toast — click reverte via mutation oposta.
+  // Auto-dismiss em 5s (default Sonner) é apropriado pro undo.
+  const handleHide = (food: FoodSearchResult) => {
+    toggleHide.mutate(
+      { foodId: food.id, currentIsHidden: false },
+      {
+        onSuccess: () => {
+          toast.success(`"${food.name}" ocultado`, {
+            duration: 5000,
+            action: {
+              label: 'Desfazer',
+              onClick: () => {
+                toggleHide.mutate({
+                  foodId: food.id,
+                  currentIsHidden: true,
+                })
+              },
+            },
+          })
+        },
+      },
+    )
+  }
+
   const pendingFavoriteFoodId =
     toggleFavorite.isPending && toggleFavorite.variables
       ? toggleFavorite.variables.foodId
+      : null
+
+  const pendingHideFoodId =
+    toggleHide.isPending && toggleHide.variables
+      ? toggleHide.variables.foodId
       : null
 
   return (
@@ -52,17 +86,12 @@ export default function FoodsPage() {
           error={error}
           searchActive={searchActive}
           onToggleFavorite={handleToggleFavorite}
+          onHide={handleHide}
           pendingFavoriteFoodId={pendingFavoriteFoodId}
+          pendingHideFoodId={pendingHideFoodId}
         />
       </div>
 
-      {/* FAB (Floating Action Button) — padrão mobile-first.
-          fixed: fica colado no viewport, ignora scroll
-          bottom-6 right-6: ~24px de cada borda
-          z-10: acima da lista mas abaixo de eventuais modals
-          shadow-lg: dá profundidade (parece flutuar)
-          O `pb-24` no container acima previne que o FAB cubra o
-          último resultado quando o user scrolla até o fim. */}
       <Link
         to="/foods/new"
         aria-label="Criar alimento"
