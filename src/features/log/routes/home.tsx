@@ -1,20 +1,65 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 
 import { getTodayBR } from '@/lib/dates'
 
 import { DailyProgressCard } from '../components/daily-progress-card'
 import { DateNavigator } from '../components/date-navigator'
+import { MealCard } from '../components/meal-card'
 import { useDailyLog } from '../hooks/use-daily-log'
+import { useDeleteEntry } from '../hooks/use-delete-entry'
+import { useDeleteMeal } from '../hooks/use-delete-meal'
 
 // Home autenticada (Diário Diário). Match visual V1:
-//   - Header só com DateNavigator no formato "◀ 📅 Hoje, 13 de maio ▶"
-//     (sem botões "Alimentos"/"Perfil" — esses ficam no BottomNav)
-//   - DailyProgressCard (B4) com ring kcal + barras de macros + "Restante"
-//   - MealCards (B5) — em construção
-//   - `pb-24` reserva espaço pro BottomNav fixed.
+//   - Header: DateNavigator "◀ 📅 Hoje, 13 de maio ▶"
+//   - DailyProgressCard: ring kcal + barras macro + "Restante"
+//   - Lista de MealCards (uma por log_meal)
+//   - Botão "Adicionar refeição" (B6 wires; por enquanto não está aqui)
+//
+// IMPORTANTE — as mutations de delete vivem AQUI, não dentro de MealCard.
+// Motivo: optimistic update remove a meal/entry da lista de cache, fazendo
+// o MealCard correspondente desmontar antes do server responder. Se a
+// mutation estivesse no MealCard, os callbacks (onSuccess/onError) seriam
+// droppados pelo TanStack Query v5 — toast não apareceria E rollback de
+// erro não rodaria. Home não desmonta nesses casos, então segura os
+// callbacks vivos. (Bug pego no B5; lição capturada em comentário.)
+//
+// `pb-24` reserva espaço pro BottomNav fixed.
 function HomePage() {
   const [dateISO, setDateISO] = useState(getTodayBR())
-  const { dailyLog, totals, loading, error } = useDailyLog(dateISO)
+  const { dailyLog, meals, totals, loading, error } = useDailyLog(dateISO)
+  const deleteEntry = useDeleteEntry()
+  const deleteMeal = useDeleteMeal()
+
+  const handleDeleteEntry = (entryId: string) => {
+    deleteEntry.mutate(
+      { entryId, dateISO },
+      {
+        onSuccess: () => toast.success('Item removido'),
+        onError: (err) =>
+          toast.error(
+            err instanceof Error
+              ? `Erro ao remover: ${err.message}`
+              : 'Erro ao remover.',
+          ),
+      },
+    )
+  }
+
+  const handleDeleteMeal = (mealId: string, mealName: string) => {
+    deleteMeal.mutate(
+      { mealId, dateISO },
+      {
+        onSuccess: () => toast.success(`"${mealName}" removida`),
+        onError: (err) =>
+          toast.error(
+            err instanceof Error
+              ? `Erro ao remover: ${err.message}`
+              : 'Erro ao remover.',
+          ),
+      },
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground pb-24">
@@ -40,9 +85,22 @@ function HomePage() {
         {!loading && !error && (
           <>
             <DailyProgressCard totals={totals} dailyLog={dailyLog} />
-            <p className="text-sm text-muted-foreground text-center py-8">
-              MealCards chegam no B5.
-            </p>
+            {meals.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Sem refeições neste dia.
+              </p>
+            ) : (
+              meals.map((meal) => (
+                <MealCard
+                  key={meal.id}
+                  meal={meal}
+                  onDeleteEntry={handleDeleteEntry}
+                  onDeleteMeal={handleDeleteMeal}
+                  deleteEntryPending={deleteEntry.isPending}
+                  deleteMealPending={deleteMeal.isPending}
+                />
+              ))
+            )}
           </>
         )}
       </main>
