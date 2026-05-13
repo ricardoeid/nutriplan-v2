@@ -57,7 +57,7 @@ function LoginPage() {
     }
 
     toast.success("Login realizado com sucesso")
-    navigate("/dashboard", { replace: true })
+    navigate("/", { replace: true })
   }
 
   return (

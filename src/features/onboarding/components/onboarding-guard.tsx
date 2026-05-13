@@ -7,7 +7,7 @@ import { useProfile } from "@/features/profile/hooks/use-profile"
 // Espelho do AuthGuard, mas pra rota /onboarding:
 //   sem user                          → /login
 //   profile carregando                → "Carregando..."
-//   onboarding_completed = true       → /dashboard (já fez, não repete)
+//   onboarding_completed = true       → / (já fez, não repete)
 //   onboarding_completed = false/null → renderiza onboarding
 export function OnboardingGuard({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth()
@@ -34,7 +34,7 @@ export function OnboardingGuard({ children }: { children: ReactNode }) {
   }
 
   if (profile?.onboarding_completed) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/" replace />
   }
 
   return <>{children}</>

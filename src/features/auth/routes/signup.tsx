@@ -57,7 +57,7 @@ function SignupPage() {
     }
 
     toast.success("Conta criada com sucesso")
-    navigate("/dashboard", { replace: true })
+    navigate("/", { replace: true })
   }
 
   return (

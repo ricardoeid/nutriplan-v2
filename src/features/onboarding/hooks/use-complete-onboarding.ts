@@ -14,7 +14,7 @@ import { type OnboardingFullData } from '../lib/schemas'
 //   2. INSERT weight_logs (peso atual, data = hoje pelo default do banco)
 //
 // Em sucesso, invalida cache do profile pra que o AuthGuard receba o
-// valor atualizado (onboarding_completed=true) e libere /dashboard.
+// valor atualizado (onboarding_completed=true) e libere /.
 // Sem isso, o cache stale enviaria o user de volta pra /onboarding em
 // loop logo após o navigate.
 //

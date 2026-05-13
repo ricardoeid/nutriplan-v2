@@ -67,7 +67,7 @@ function OnboardingPage() {
     completeOnboarding.mutate(form.getValues(), {
       onSuccess: () => {
         toast.success('Tudo pronto!')
-        navigate('/dashboard', { replace: true })
+        navigate('/', { replace: true })
       },
       onError: (err) => {
         toast.error(err instanceof Error ? err.message : 'Erro ao salvar')

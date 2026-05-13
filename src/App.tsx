@@ -2,10 +2,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 
 import { Toaster } from "@/components/ui/sonner"
 import { AuthGuard } from "@/features/auth/components/auth-guard"
-import HomePage from "@/features/home/routes/index"
+import HomePage from "@/features/log/routes/home"
 import LoginPage from "@/features/auth/routes/login"
 import SignupPage from "@/features/auth/routes/signup"
-import DashboardPage from "@/features/dashboard/routes/dashboard"
 import OnboardingPage from "@/features/onboarding/routes/onboarding"
 import { OnboardingGuard } from "@/features/onboarding/components/onboarding-guard"
 import ProfilePage from "@/features/profile/routes/profile"
@@ -19,7 +18,14 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route
+          path="/"
+          element={
+            <AuthGuard>
+              <HomePage />
+            </AuthGuard>
+          }
+        />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route
@@ -28,14 +34,6 @@ function App() {
             <OnboardingGuard>
               <OnboardingPage />
             </OnboardingGuard>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <AuthGuard>
-              <DashboardPage />
-            </AuthGuard>
           }
         />
         <Route

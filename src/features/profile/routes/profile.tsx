@@ -120,7 +120,7 @@ function ProfilePage() {
 
         <CardFooter className="flex justify-between gap-2">
           <Button variant="outline" asChild>
-            <Link to="/dashboard">Voltar</Link>
+            <Link to="/">Voltar</Link>
           </Button>
           <div className="flex gap-2">
             <Button variant="outline" asChild>
