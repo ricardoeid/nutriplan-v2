@@ -69,7 +69,7 @@ function ProfilePage() {
   // grandes onde o conteúdo é curto.
   // max-w-2xl alinha com /foods pra consistência visual.
   return (
-    <div className="min-h-screen flex items-start justify-center p-4 py-8">
+    <div className="min-h-screen flex items-start justify-center p-4 py-8 pb-24">
       <Card className="w-full max-w-2xl">
         <CardHeader>
           <h1 className="text-2xl font-semibold">Seu perfil</h1>

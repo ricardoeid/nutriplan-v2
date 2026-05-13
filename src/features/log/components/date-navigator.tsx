@@ -1,29 +1,31 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { addDaysISO, formatDateDDMM, getTodayBR } from '@/lib/dates'
+import { addDaysISO, formatDateLongBR, getTodayBR } from '@/lib/dates'
 
 interface DateNavigatorProps {
   dateISO: string
   onDateChange: (dateISO: string) => void
 }
 
-// Navegação de data do diário: setas ◀ ▶ + display DD/MM no centro.
+// Navegação de data do diário, formato V1: ◀ [📅 Hoje, 13 de maio] ▶
 //
 // Regras:
-//   - Setinha pra trás sempre habilitada (pode ver passado livremente).
+//   - Setinha pra trás sempre habilitada (passado livre).
 //   - Setinha pra frente bloqueada quando dateISO === hoje BR. Motivo:
-//     cada navegação dispara `get_or_create_daily_log` no banco — se
-//     permitirmos futuro, poluímos o DB com daily_logs vazios. Sem
-//     plano-ativo-UI ainda (Fase 5), não tem ganho compensar.
-//   - Clicar no texto DD/MM volta pra hoje (atalho).
-//   - Quando está em hoje, mostra " · Hoje" ao lado em cor primária.
-//
-// `tabular-nums` mantém os dígitos alinhados quando navega entre datas.
+//     cada navegação chama `get_or_create_daily_log`, que CRIA o
+//     daily_log no banco — sem UI de plano ativo (Fase 5), ir pro
+//     futuro só polui o DB com logs vazios.
+//   - Centro: ícone calendário + "Hoje, 13 de maio" (clicável → volta
+//     pra hoje quando não está em hoje).
+//   - `tabular-nums` mantém o número do dia alinhado entre navegações.
 export function DateNavigator({ dateISO, onDateChange }: DateNavigatorProps) {
   const today = getTodayBR()
   const isOnToday = dateISO === today
   const canGoForward = dateISO < today
+
+  const dateLong = formatDateLongBR(dateISO)
+  const label = isOnToday ? `Hoje, ${dateLong}` : dateLong
 
   return (
     <div className="flex items-center justify-between gap-2">
@@ -39,13 +41,12 @@ export function DateNavigator({ dateISO, onDateChange }: DateNavigatorProps) {
       <button
         type="button"
         onClick={() => onDateChange(today)}
-        className="text-lg font-medium tabular-nums px-3 py-1 rounded hover:bg-accent transition-colors"
+        disabled={isOnToday}
+        className="flex items-center gap-2 px-3 py-1 rounded hover:bg-accent disabled:hover:bg-transparent disabled:cursor-default transition-colors"
         aria-label={isOnToday ? 'Hoje' : 'Voltar para hoje'}
       >
-        {formatDateDDMM(dateISO)}
-        {isOnToday && (
-          <span className="ml-2 text-xs text-primary font-normal">Hoje</span>
-        )}
+        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+        <span className="text-base font-medium tabular-nums">{label}</span>
       </button>
 
       <Button

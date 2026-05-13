@@ -115,7 +115,7 @@ function ProfileEditForm({ profile, navigate }: FormProps) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4 pb-24">
       <Card className="w-full max-w-lg">
         <CardHeader>
           <h1 className="text-2xl font-semibold">Editar perfil</h1>

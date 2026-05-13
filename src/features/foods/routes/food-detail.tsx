@@ -37,7 +37,7 @@ export default function FoodDetailPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-2xl p-4">
+      <div className="mx-auto max-w-2xl p-4 pb-24">
         <p className="text-sm text-muted-foreground">Carregando...</p>
       </div>
     )
@@ -45,7 +45,7 @@ export default function FoodDetailPage() {
 
   if (error || !food) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4 p-4">
+      <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
         <Button variant="outline" size="sm" onClick={() => navigate('/foods')}>
           <ArrowLeft className="mr-1 h-4 w-4" />
           Voltar
@@ -100,7 +100,7 @@ export default function FoodDetailPage() {
     : `${formatGrams(food.default_serving_g)} g`
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 p-4">
+    <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
       <div className="flex items-center justify-between gap-2">
         <Button
           variant="outline"

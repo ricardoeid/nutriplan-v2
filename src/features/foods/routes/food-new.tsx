@@ -104,7 +104,7 @@ function FoodNewPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-4 pb-24">
       <Card className="w-full">
         <CardHeader>
           <h1 className="text-2xl font-semibold">Novo alimento</h1>

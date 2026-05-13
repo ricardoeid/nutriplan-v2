@@ -66,7 +66,7 @@ export default function FoodEditPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-2xl p-4">
+      <div className="mx-auto max-w-2xl p-4 pb-24">
         <p className="text-sm text-muted-foreground">Carregando...</p>
       </div>
     )
@@ -74,7 +74,7 @@ export default function FoodEditPage() {
 
   if (error || !food) {
     return (
-      <div className="mx-auto max-w-2xl p-4">
+      <div className="mx-auto max-w-2xl p-4 pb-24">
         <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error instanceof Error
             ? error.message
@@ -87,7 +87,7 @@ export default function FoodEditPage() {
   // Guard: se não é dono, redireciona pro detail (que mostra readonly)
   if (!isOwn) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4 p-4">
+      <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900">
           Você não pode editar este alimento.
         </p>
@@ -126,7 +126,7 @@ export default function FoodEditPage() {
   } = form
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-4 pb-24">
       <Card className="w-full">
         <CardHeader>
           <h1 className="text-2xl font-semibold">Editar alimento</h1>

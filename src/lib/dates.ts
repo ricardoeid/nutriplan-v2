@@ -43,3 +43,18 @@ export function formatDateDDMMYYYY(dateISO: string): string {
   const [y, m, d] = dateISO.split('-')
   return `${d}/${m}/${y}`
 }
+
+// Formata YYYY-MM-DD pra "13 de maio" (display longo em pt-BR, sem ano).
+// Match do header da V1 ("Hoje, 13 de maio") — o prefixo "Hoje, " é
+// responsabilidade do caller (DateNavigator), aqui só o nome do mês.
+export function formatDateLongBR(dateISO: string): string {
+  const [y, m, d] = dateISO.split('-').map(Number)
+  // Constrói Date em UTC pra evitar off-by-one por timezone — só o dia/mês
+  // importam pro display, não o instante.
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  }).format(date)
+}
