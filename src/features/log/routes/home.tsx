@@ -1,11 +1,15 @@
 import { useState } from 'react'
+import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { Button } from '@/components/ui/button'
 import { getTodayBR } from '@/lib/dates'
 
 import { DailyProgressCard } from '../components/daily-progress-card'
 import { DateNavigator } from '../components/date-navigator'
 import { MealCard } from '../components/meal-card'
+import { NewMealDialog } from '../components/new-meal-dialog'
+import { useCreateMeal } from '../hooks/use-create-meal'
 import { useDailyLog } from '../hooks/use-daily-log'
 import { useDeleteEntry } from '../hooks/use-delete-entry'
 import { useDeleteMeal } from '../hooks/use-delete-meal'
@@ -14,22 +18,24 @@ import { useDeleteMeal } from '../hooks/use-delete-meal'
 //   - Header: DateNavigator "◀ 📅 Hoje, 13 de maio ▶"
 //   - DailyProgressCard: ring kcal + barras macro + "Restante"
 //   - Lista de MealCards (uma por log_meal)
-//   - Botão "Adicionar refeição" (B6 wires; por enquanto não está aqui)
+//   - Botão "Adicionar refeição" abaixo da lista (abre NewMealDialog)
 //
-// IMPORTANTE — as mutations de delete vivem AQUI, não dentro de MealCard.
-// Motivo: optimistic update remove a meal/entry da lista de cache, fazendo
-// o MealCard correspondente desmontar antes do server responder. Se a
-// mutation estivesse no MealCard, os callbacks (onSuccess/onError) seriam
-// droppados pelo TanStack Query v5 — toast não apareceria E rollback de
-// erro não rodaria. Home não desmonta nesses casos, então segura os
-// callbacks vivos. (Bug pego no B5; lição capturada em comentário.)
+// IMPORTANTE — as mutations de delete e create vivem AQUI, não dentro de
+// MealCard. Motivo: optimistic update remove a meal/entry da lista de
+// cache, fazendo o MealCard correspondente desmontar antes do server
+// responder. Se a mutation estivesse no MealCard, os callbacks
+// (onSuccess/onError) seriam droppados pelo TanStack Query v5 — toast
+// não apareceria E rollback de erro não rodaria. Home não desmonta
+// nesses casos, então segura os callbacks vivos.
 //
 // `pb-24` reserva espaço pro BottomNav fixed.
 function HomePage() {
   const [dateISO, setDateISO] = useState(getTodayBR())
+  const [newMealOpen, setNewMealOpen] = useState(false)
   const { dailyLog, meals, totals, loading, error } = useDailyLog(dateISO)
   const deleteEntry = useDeleteEntry()
   const deleteMeal = useDeleteMeal()
+  const createMeal = useCreateMeal()
 
   const handleDeleteEntry = (entryId: string) => {
     deleteEntry.mutate(
@@ -56,6 +62,33 @@ function HomePage() {
             err instanceof Error
               ? `Erro ao remover: ${err.message}`
               : 'Erro ao remover.',
+          ),
+      },
+    )
+  }
+
+  const handleCreateMeal = (values: {
+    name: string
+    target_time?: string
+  }) => {
+    if (!dailyLog) return
+    createMeal.mutate(
+      {
+        dailyLogId: dailyLog.id,
+        dateISO,
+        name: values.name,
+        target_time: values.target_time,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`"${values.name}" adicionada`)
+          setNewMealOpen(false)
+        },
+        onError: (err) =>
+          toast.error(
+            err instanceof Error
+              ? `Erro ao adicionar: ${err.message}`
+              : 'Erro ao adicionar refeição.',
           ),
       },
     )
@@ -101,9 +134,25 @@ function HomePage() {
                 />
               ))
             )}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => setNewMealOpen(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Adicionar refeição
+            </Button>
           </>
         )}
       </main>
+
+      <NewMealDialog
+        open={newMealOpen}
+        onOpenChange={setNewMealOpen}
+        onSubmit={handleCreateMeal}
+        submitting={createMeal.isPending}
+      />
     </div>
   )
 }
