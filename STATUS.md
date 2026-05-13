@@ -1,490 +1,957 @@
 # NutriPlan V2 — STATUS
 
-Última atualização: 2026-05-07 (fim da Fase 2)
+**Última atualização:** 2026-05-08 (fim da Fase 3 do projeto)
+**Commit em prod:** `874b1be` — `feat(foods): hide foods with undo toast and profile section`
+**Repo:** github.com/ricardoeid/nutriplan-v2 — Vercel deploy autom em `main`
 
-Este arquivo é o resumo do estado atual do projeto. Serve como ponto
-de retomada quando você (ou outro turn de IA) precisar entender onde
-estamos sem reler todo o histórico de conversas.
+Este arquivo é o ponto de retomada do projeto. Próximo chat lê isso, fecha
+o arquivo, e começa a Fase 4 com contexto suficiente pra trabalhar sem
+reler o histórico todo.
 
 ---
 
-## ⚠️ Regras de colaboração com IA neste projeto
+## 0. CONTEXTO DO PROJETO E DO USUÁRIO
 
-**1. Entregar arquivos via download, NUNCA em bloco markdown de chat.**
+### Sobre o Ricardo (usuário)
 
-Durante a Fase 1, descobrimos que blocos de código markdown podem
-silenciosamente comer caracteres em paste longo — especialmente o `<`
-que abre generics em `React.forwardRef`. Isso custou ~10 turnos do
-Bloco 3 sendo investigado como se fosse encoding, flags de tsconfig,
-ou problema de versão de React. Era simplesmente o paste corrompendo.
+- **Solo dev.** Sem time, sem code review externo, sem QA.
+- **Leigo em parte do stack.** Não conhece a fundo: zod, TanStack Query, RHF.
+  Conhece bem: React, TS, conceitos gerais de banco.
+- **Trabalha no Windows / PowerShell** em `C:\projetos\nutriplan-v2`.
+- **Edita no Cursor** (algumas vezes outro editor — ignore).
+- **Tem 2 contas de teste em prod:** `teste1@nutriplan.dev` e `teste2@nutriplan.dev`.
+- **Estilo de trabalho:** pega entregas pequenas, valida manualmente, commita,
+  segue. Não tolera retrabalho por chute do modelo.
 
-Regra: para qualquer arquivo que a IA gerar (componente, página, hook,
-config), usar mecanismo de download/anexo do ambiente, **não** copiar
-e colar via bloco de código no chat. Vale para arquivos novos E para
-edições de arquivos existentes.
+### Sobre o projeto
 
-**Padrão dos comandos de download:** ao entregar arquivos, sempre
-incluir comandos PowerShell pra mover do `~/Downloads` pro path certo:
+NutriPlan é um app de planejamento e tracking alimentar. PWA. Mercado BR.
+Foco em:
+- Banco TACO (591 alimentos brasileiros) + custom foods + composite recipes
+- Open Food Facts integrado (adiado — ver §10)
+- Planos alimentares estruturados (Fase 5 do projeto)
+- Motor de substituição protein-aware (Fase 6 do projeto)
+
+V1 foi escrito no Lovable Cloud + TanStack Start. V2 é rewrite from scratch
+no stack abaixo, com o mesmo banco Supabase migrado.
+
+### Stack atual (NÃO MUDAR sem motivo forte)
+
+```
+Vite 8 + React 19 + TypeScript 6
+Tailwind v3 + shadcn/ui classic
+TanStack Query (estado server)
+react-router-dom v6
+react-hook-form 7 + zod 4 + @hookform/resolvers
+sonner (toasts)
+Supabase JS 2 (auth + DB + futuramente Edge Functions)
+Bun (package manager + script runner)
+```
+
+shadcn primitivos instalados:
+button, card, form, input, label, progress, radio-group, sonner.
+
+**Nada de @radix-ui/react-dropdown-menu, @radix-ui/react-dialog, @radix-ui/react-sheet** —
+quando precisarmos de dropdown/dialog/sheet, primeiro discutir custo-benefício
+de instalar vs implementar manual. No B9 (hide menu) fizemos manual com sucesso.
+
+---
+
+## 1. REGRAS DE COLABORAÇÃO COM IA (LEIA ANTES DE QUALQUER COISA)
+
+### Regra 1 — Entregar arquivos via download, NUNCA em bloco markdown grande
+
+Blocos de código markdown podem **comer caracteres silenciosamente** em paste
+longo — especialmente o `<` que abre generics em `React.forwardRef`. Custou
+~10 turnos do Bloco 3 da Fase 1 investigando como se fosse encoding/tsconfig.
+
+**Sempre usar `create_file` + `present_files`.** Comandos PowerShell pra mover:
 
 ```powershell
 Move-Item -Force $HOME\Downloads\<arquivo> C:\projetos\nutriplan-v2\<destino>
 ```
 
-Exceção: trechos curtos de código pra explicação conceitual (≤5
-linhas, sem generics, sem forwardRef) podem ir em bloco markdown
-inline.
+Exceção: trechos curtos pra explicação conceitual (≤5 linhas, sem generics).
 
-**2. Usuário trabalha solo, é leigo em parte do stack, prefere passos
-pequenos com validação a cada bloco.**
+### Regra 2 — Entregas pequenas, validação manual rodável em 1-2 min
 
-Quebrar tarefas em blocos curtos. Cada bloco com critério de validação
-manual rodável em 1-2 minutos antes de commitar. Não amontoar.
+Quebrar tarefas em blocos curtos (B1, B2, ..., Bn). Cada bloco com critério
+de validação manual antes do commit. Não amontoar.
 
-**3. Quando aparecer erro de TS estranho ("Expression expected",
-"Operator > cannot be applied", JSX elements sem closing tag em
-contexto não-JSX), SUSPEITE PRIMEIRO de caractere faltando no arquivo
-gerado**, antes de inventar teorias sobre encoding, tsconfig flags ou
-versão de React. Pedir o arquivo e ler com calma. Erros TS em cascata
-viram fantasmas absurdos depois do primeiro erro real.
+**Validação por bloco** = `bun run build` + `bun run dev` + cenários
+manuais específicos descritos pelo modelo. Ricardo testa, reporta, commita.
 
-**4. Usuário está no Windows / PowerShell.** Ctrl+C cancela comando
-(não copia). Selecionar com mouse + clique direito copia. `cat` mostra
-UTF-8 como mojibake (mesmo fenômeno do Excel) — arquivo está íntegro,
-é só visualização. Pra outputs longos, prefere redirecionar pra
-`resultado.txt` e anexar.
+### Regra 3 — Erro de TS estranho? Suspeite de arquivo corrompido PRIMEIRO
 
-**5. Aritmética: nunca calcular de cabeça.** Quando precisar de número
-"esperado" pra validação de bloco (BMR, TDEE, targets de macro,
-conversões g↔%), gerar via `bash_tool` com Python ou rodando o próprio
-código. Cálculo mental do modelo é não-confiável e gera retrabalho. Se
-for matemática de qualquer tipo, vai pelo Python.
+Quando vier "Expression expected", "Operator > cannot be applied", JSX
+elements sem closing tag em contexto não-JSX: **suspeite primeiro de
+caractere faltando no arquivo gerado**. Pedir o arquivo, ler com calma.
+Erros TS em cascata viram fantasmas absurdos depois do primeiro erro real.
+
+### Regra 4 — Windows / PowerShell
+
+- Ctrl+C **cancela comando** (não copia)
+- Seleção com mouse + clique direito copia
+- `Get-Content` mostra UTF-8 sem BOM como mojibake — arquivo está íntegro,
+  é só visualização. Pra ler corretamente: `Get-Content <path> -Encoding UTF8`
+- Pra outputs longos, Ricardo prefere `comando > resultado.txt` e anexar.
+
+### Regra 5 — Aritmética: NUNCA calcular de cabeça
+
+Pra qualquer número esperado de validação (BMR, TDEE, macros, conversões
+g↔%, preview kcal/100g), gerar via `bash_tool` com Python ou rodando o
+próprio código. Mental do modelo é não-confiável e gera retrabalho real.
+
+### Regra 6 — Confirmar estado real do repo antes de codar bloco grande
+
+Aprendido na dor: Fase 3 / B6 ficou não-commitado e o Vercel quebrou no
+B6/fix porque eu assumi "commitou ok". Daqui pra frente:
+
+- **Antes de codar bloco com 5+ arquivos:** pedir `git status` ou
+  `Get-ChildItem` do diretório relevante.
+- **Depois de cada bloco entregue:** pedir `git log --oneline -3` no final
+  pra confirmar que o commit existe.
+- **Quando o user diz "commitado":** acreditar **MAS** verificar uma vez
+  no log antes de seguir pro próximo bloco. Custa 1 mensagem, evita
+  retrabalho de 30min.
+
+### Regra 7 — Diagnóstico antes de fix em segunda tentativa
+
+Se o primeiro fix não resolveu: **forçar evidência real** antes de chutar
+de novo. Console.log, F12 Network, SQL direto, web_fetch real contra API.
+
+Lição cara: gastei 3 mensagens chutando endpoints OFF (cgi/search.pl → v2 →
+search-a-licious) antes de fazer `web_search` + `web_fetch` reais. Quando
+finalmente pesquisei, achei o issue oficial do mesmo bug (503 global em
+abril/2026). Teria economizado 2 mensagens.
+
+**Regra prática:** se a segunda tentativa não funciona, parar de chutar e
+ir pra evidência (search + fetch reais).
+
+### Regra 8 — Listar arquivos como novos vs editados em entregas com 5+ arquivos
+
+Quando entrega tem muitos arquivos, separar visualmente:
+
+> 🆕 **Novos (3):** arq1, arq2, arq3
+> 📝 **Editados (4):** arq4, arq5, arq6, arq7
+
+Ajuda Ricardo a entender o que pode sobrescrever localmente sem pensar.
+
+### Regra 9 — Formato dos comandos de commit
+
+Quando bloco passa na validação, oferecer **bloco git pronto pra colar**:
+
+```bash
+git add <paths>
+git commit -m "<tipo(escopo): mensagem>"
+git push
+git log --oneline -3
+```
+
+Não esquecer o `git log -3` (regra 6).
+
+### Regra 10 — Não presumir capacidades do ambiente
+
+Sempre confirmar antes de incluir num plano:
+- "Você tem Docker instalado?" antes de propor Edge Function
+- "Tem CLI do Supabase?" antes de propor migrations via CLI
+- "Qual é o caminho do arquivo X?" antes de gerar paths chutados
+
+Ricardo prefere "antes de codar, preciso confirmar Y" do que "esse fix
+exige Z que você precisa instalar, e mais 3 coisas que você não sabia".
+
+### Regra 11 — Não interpretar excessivamente as mensagens do usuário
+
+Ricardo é direto. Quando ele diz "passou, vamos seguir", significa
+"passou + commitei + push feito". Quando ele diz "tudo certo, commitado",
+significa o mesmo. **Não pedir validação adicional do óbvio** ("você
+realmente testou?"). Aceitar e seguir.
+
+Por outro lado: quando Ricardo descreve um problema específico ("o teste X
+deu erro Y"), **focar no problema específico** sem expandir pra outros
+cenários que ele não mencionou.
+
+### Regra 12 — Memória persistente (memory_user_edits)
+
+Ricardo tem 2 instruções permanentes salvas:
+- Projeto NutriPlan V2 em `C:\projetos\nutriplan-v2` (Windows/PowerShell)
+- Anti-mental-arithmetic: sempre via `bash_tool` com Python ou rodando código
+
+Não duplicar essas no STATUS — já estão no contexto via user memories.
 
 ---
 
-## Fase 0 — FECHADA ✅
+## 2. ESTADO ATUAL DA PRODUÇÃO
 
-End-to-end vivo: GitHub → Vercel → Vite bundle → React → Supabase
-client tipado → query real → 608 alimentos renderizados em produção.
+### Banco Supabase
 
-Stack: Vite 8 + React 19 + TypeScript 6 + Tailwind v3 + shadcn/ui classic.
-Backend Supabase próprio (região São Paulo) com 14 tabelas e 16 RPCs
-migradas do Lovable Cloud. Tabela `foods` com 608 alimentos (591 TACO).
+- **Região:** São Paulo
+- **Tabelas:** 14 (foods, profiles, daily_logs, log_meals, log_entries,
+  meal_plans, plan_meals, plan_slots, slot_options, option_items,
+  composite_food_items, user_food_prefs, weight_logs, plan_day_adjustments)
+- **RPCs disponíveis (apenas 2):**
+  - `search_foods(p_user_id, p_query, p_filter, p_limit)` — busca ranqueada
+  - `search_unused_cached_off(p_user_id, p_query, p_limit)` — OFFs cacheados
+    não usados pelo user
+- **RPCs do blueprint que AINDA NÃO FORAM MIGRADAS** (precisarão ser criadas):
+  - `get_or_create_daily_log(p_user_id, p_date)` — Fase 4 do projeto
+  - `activate_meal_plan(p_user_id, p_plan_id)` — Fase 5
+  - `get_plan_tree(p_plan_id)` — Fase 5
+  - Triggers de cleanup pra `plan_day_adjustments` — Fase 5
+- **Dados em foods:** 591 TACO + 17 OFF cacheados do V1 (sem dono) + custom
+  foods criados em teste pela conta `teste1@nutriplan.dev` (Whey + Pasta).
 
-Detalhes completos no histórico — não repetir aqui.
+### Deploy
 
----
-
-## Fase 1 — FECHADA ✅
-
-Auth foundation completo. Stack: TanStack Query, react-router-dom v6,
-react-hook-form + zod + @hookform/resolvers, sonner, shadcn classic
-adaptado pra React 19 (`React.ComponentRef` em vez de
-`React.ElementRef`).
-
-Rotas: `/`, `/login`, `/signup`, `/dashboard` (com AuthGuard).
-Provider tree: StrictMode → QueryClient → AuthProvider → App
-(BrowserRouter + Routes + Toaster).
-
-Trigger `handle_new_user` validado em produção: signup cria row em
-`auth.users` E em `public.profiles` (mesmo UUID).
-
-Detalhes completos no histórico.
-
----
-
-## Fase 2 — FECHADA ✅
-
-Onboarding multi-step + cálculo de BMR/TDEE/macros + persistência em
-`profiles` e `weight_logs` + `/profile` readonly + `/profile/edit`
-com MacroEditor dual-mode + AuthGuard v2 com 3 estados (sem user /
-sem onboarding / pronto). Validado em produção com 2 contas reais.
-
-### Stack adicionada nesta fase
-
-Nada de pacote novo — toda a fase usou só dependências da Fase 1.
-Adicionados 2 primitivos shadcn:
-
-- `@radix-ui/react-radio-group@1.3.8`
-- `@radix-ui/react-progress@1.1.8`
-
-### Estrutura de pastas adicionada
-
-```
-src/lib/
-├── macros.ts                       # BMR/TDEE/macros + ACTIVITY_LEVELS + GOALS
-└── utils-format.ts                 # formatadores PT-BR (data, sex, activity, goal)
-
-src/features/onboarding/
-├── lib/
-│   └── schemas.ts                  # zod por step + agregado
-├── hooks/
-│   ├── use-onboarding-form.ts      # state machine (currentStep, validateAndGoNext)
-│   └── use-complete-onboarding.ts  # mutation submit final
-├── components/
-│   ├── step-basic-info.tsx         # step 1 — display_name
-│   ├── step-body.tsx               # step 2 — sex/birthDate/height/weight
-│   ├── step-activity.tsx           # step 3 — activity_level (RadioGroup como cards)
-│   ├── step-goal.tsx               # step 4 — goal + preview kcal em tempo real
-│   ├── step-macros-review.tsx      # step 5 — 4 cards readonly
-│   ├── step-review.tsx             # step 6 — resumo final
-│   ├── macro-editor.tsx            # MacroEditor dual-mode (g/%) + UnitInput
-│   └── onboarding-guard.tsx        # espelho do AuthGuard pra /onboarding
-└── routes/
-    └── onboarding.tsx              # casca: Progress + slot do step + nav
-
-src/features/profile/
-├── hooks/
-│   ├── use-profile.ts              # query do profile do user atual
-│   └── use-update-profile.ts       # mutation com recalc opcional
-└── routes/
-    ├── profile.tsx                 # readonly (dados pessoais + metas + nav)
-    └── profile-edit.tsx            # form completo + MacroEditor + checkbox recalc
-
-src/components/ui/
-├── radio-group.tsx                 # shadcn classic, ComponentRef pra R19
-└── progress.tsx                    # shadcn classic, ComponentRef pra R19
-
-supabase/migrations/
-└── 20260506000000_fix_weight_logs_logged_on_default.sql
-```
-
-### Rotas finais
-
-- `/` → HomePage (pública)
-- `/login` → LoginPage (pública)
-- `/signup` → SignupPage (pública)
-- `/onboarding` → OnboardingPage (envolvida em `OnboardingGuard`)
-- `/dashboard` → DashboardPage (envolvida em `AuthGuard`)
-- `/profile` → ProfilePage (envolvida em `AuthGuard`)
-- `/profile/edit` → ProfileEditPage (envolvida em `AuthGuard`)
-
-### AuthGuard v2 — 3 estados
-
-- Sem user → `/login`
-- User + profile carregando → "Carregando..."
-- User + `onboarding_completed=false` → `/onboarding`
-- User + `onboarding_completed=true` → renderiza children
-
-`OnboardingGuard` é espelho da mesma lógica mas inverte: se já
-completou, manda pra `/dashboard`.
-
-### Cálculo de macros (em `src/lib/macros.ts`)
-
-- BMR Mifflin-St Jeor:
-  - Homem: `10·kg + 6.25·cm − 5·idade + 5`
-  - Mulher: `10·kg + 6.25·cm − 5·idade − 161`
-- TDEE: BMR × multiplicador de atividade (1.2/1.375/1.55/1.725/1.9)
-- Targets:
-  - kcal = TDEE × multiplicador de goal (cut 0.80, maintain 1.0, bulk 1.10)
-  - proteína = peso × 2.0 g/kg
-  - gordura = (kcal × 0.25) / 9
-  - carbo = (kcal − prot·4 − fat·9) / 4
-- Idade calculada de `birth_date` com função própria (`calculateAge`)
-  pra centralizar a regra (importa em vários lugares: schemas zod e
-  cálculos)
-
-### MacroEditor dual-mode
-
-Source of truth no RHF é **sempre gramas**. O modo controla só display.
-
-**Modo gramas (default na primeira vez):**
-- 3 inputs editáveis: prot, carb, fat (em g)
-- Calorias é **readonly**, derivado da soma dos macros
-- Sem validação de soma — kcal sempre fecha
-
-**Modo percentual:**
-- Calorias **editável** (independente)
-- 3 inputs editáveis: prot, carb, fat (em %)
-- Soma dos % deve fechar 100 (±0.5pp pra arredondamento)
-- Quando fora, label "Soma dos macros" fica vermelha
-- Submit bloqueado com toast vermelho se soma não fecha (validação
-  redundante no `profile-edit.handleSave` que cobre os 2 modos)
-
-Modo persistido em `localStorage('nutriplan:macro-editor-mode')`.
-
-`UnitInput` interno: input com unidade fixa à direita e estado local
-de string em edição. Só commita o valor pro RHF no `onBlur` ou Enter.
-Isso resolve o "pulo de casa decimal" do v1, onde o `step="0.1"` fazia
-o navegador interromper digitação.
-
-### Submit do onboarding (`use-complete-onboarding`)
-
-1. UPDATE em `profiles` (todos os campos + targets calculados +
-   `onboarding_completed=true`)
-2. INSERT em `weight_logs` (peso atual, `logged_on` usa default do banco)
-3. `queryClient.invalidateQueries({ queryKey: ['profile'] })` pra
-   destravar AuthGuard que ainda tinha cache stale
-4. Toast verde + `navigate('/dashboard', { replace: true })`
-
-INSERT do weight_logs é best-effort: se falhar, onboarding ainda é
-considerado completo (warning no console). Pra transação real
-precisaria de RPC server-side; fica pra fase futura se virar problema.
-
-### Edição do profile (`use-update-profile`)
-
-- Sempre atualiza dados pessoais (nome, sex, birth_date, height, weight,
-  activity, goal)
-- Targets dependem do checkbox "Recalcular metas":
-  - Ligado → calcula via `calculateMacroTargets` (ignora MacroEditor)
-  - Desligado → usa valores manuais do MacroEditor (RHF)
-- Weight_log: UPSERT em `(user_id, logged_on)` apenas se peso mudou.
-  Não toca em weight_logs se peso é igual ao anterior. Mesmo dia →
-  atualiza row existente; novo dia → cria nova.
-
-### Migration 8.5 (timezone fix do weight_logs)
-
-Aplicada via SQL Editor + arquivo versionado em `supabase/migrations/`:
-
-```sql
-ALTER TABLE weight_logs
-  ALTER COLUMN logged_on
-  SET DEFAULT ((now() AT TIME ZONE 'America/Sao_Paulo')::date);
-```
-
-Fix de off-by-one que afetava users registrando peso após 21h BRT
-(servidor UTC interpretava como dia seguinte). Hardcoda fuso BR.
-Refator pra coluna `timezone` no profile fica como pendência se app
-internacionalizar.
-
-`weight_logs.logged_on` é a única coluna `date` com default temporal
-no banco (auditado). Todas as outras 14 colunas com default são
-`timestamp with time zone`, que **não** têm o problema (guardam
-instante absoluto, cliente formata local).
-
-### Histórico de commits da Fase 2
-
-1. `feat: add BMR/TDEE/macros calculation utilities`
-2. `feat: add zod schemas for onboarding steps`
-3. `feat: add shadcn radio-group and progress primitives`
-4. `feat: onboarding shell with step state machine and placeholders`
-5. `feat: implement onboarding steps 1-2 with rhf and zod validation`
-6. `feat: implement onboarding steps 3-4 with activity/goal selection and live calorie preview`
-7. `fix: add pt-br error messages for sex/activity/goal validators`
-8. `feat: implement onboarding submit (profile update + initial weight log)`
-9. `feat: AuthGuard v2 with onboarding completion check`
-10. `fix(db): weight_logs.logged_on default uses brasilia timezone`
-11. `feat: profile readonly page and dashboard nav cleanup`
-12. `feat: profile edit form with optional target recalculation`
-13. `feat: macro editor with grams/percent dual mode and sum validation`
+- **Frontend:** Vercel auto-deploy de `main`
+- **Backend:** Supabase prod (mesmo projeto do V1, schema migrado)
+- **Sem staging.** Push é prod.
 
 ### Contas de teste
 
-- `teste1@nutriplan.dev` (UID `2aaccee9-1909-460f-bdbd-9b3f4353b396`)
-  — onboarding completo (Ricardo, M, 1996-05-06, 175cm)
-- `teste2@nutriplan.dev` — onboarding completo durante teste do Bloco 8
+- `teste1@nutriplan.dev` — onboarding completo, 1-2 custom foods criados
+- `teste2@nutriplan.dev` — onboarding completo
 
-Os 4 cenários do AuthGuard v2 foram validados com essas duas contas.
+### Bundle atual
 
----
-
-## Decisões importantes tomadas (Fase 2)
-
-### Único `useForm` no parent, steps recebem `form` por prop
-
-Em vez de cada step ter seu próprio `useForm` interno e callback
-`onSubmit`, o `useOnboardingForm` mantém um único form com o schema
-agregado. Cada step do onboarding (e o profile-edit também) recebe
-`form: UseFormReturn<OnboardingFullData>` como prop. Vantagens:
-
-- Estado dos forms vive em um lugar só, simétrico com `currentStep`
-- Navegação entre steps preserva valores sem `useEffect` de hidratação
-- Submit final tem todos os campos juntos sem mexer
-- Steps são reaproveitados no profile-edit sem mudar nada
-
-Validação por step: o schema agregado é o resolver, mas
-`form.trigger(['campos','do','step'])` valida só o subset do step ativo.
-
-### MacroEditor dual-mode com source of truth em gramas
-
-Banco guarda gramas. UI tem 2 modos. Source of truth no RHF é sempre
-gramas. Modo controla só display/input. Conversão acontece na borda
-(no display e no commit do input).
-
-Em modo gramas, kcal não é editável — é a soma derivada. Em modo
-percentual, kcal é editável e independente; os % devem fechar 100.
-Foram 2 cabeças se misturando no v1 que motivou refactor 11.1.
-
-### `UnitInput` com string em edição local
-
-Inputs numéricos com `step="0.1"` causam "pulo de casa decimal" — o
-navegador interrompe digitação. Solução: input mantém estado local
-`editing: string | null` enquanto user digita, só converte/commita pro
-RHF no `onBlur` ou Enter. Padrão controlled input com display string.
-
-### Migration 8.5 hardcoda 'America/Sao_Paulo' (não coluna no profile)
-
-Decisão: app é mercado BR. Hardcoded resolve 100% dos casos atuais
-sem complexidade de trigger ou coluna `timezone` no profile. Quando
-internacionalizar, refator é trivial (1 ALTER + 1 trigger).
-
-### Targets de profile como `optional` no schema agregado
-
-`calorieTarget`, `proteinTarget`, `carbTarget`, `fatTarget` foram
-adicionados ao `onboardingFullSchema` como optional. Onboarding não
-envia (são calculados no submit); profile-edit pode enviar (vindos do
-MacroEditor). Schema único cobre os 2 casos.
-
-### `useFormContext` evitado intencionalmente
-
-Padrão alternativo seria `<Form>` com context provider e cada step
-chamando `useFormContext()`. Optei por `form` como prop pra ficar
-explícito. Boilerplate trivial (1 prop), legibilidade ganha.
+700KB minified / 197KB gzip. Warning de chunk size > 500KB acompanhando
+desde Fase 2. **Não atacar agora** — code-splitting fica pra Fase 7 (PWA).
 
 ---
 
-## Pendências conhecidas
+## 3. CONVENÇÕES DE CÓDIGO DO PROJETO
 
-### Item A — Despublicar Lovable Cloud V1 (futuro)
+### Estrutura de pastas
 
-Quando V2 estiver com paridade funcional + dados reais migrados +
-testado em produção, despublicar/deletar projeto Lovable original.
+```
+src/
+├── App.tsx                      # Routes + AuthGuard
+├── main.tsx                     # QueryClient instantiated INLINE aqui
+├── lib/
+│   ├── supabase.ts              # cliente
+│   ├── macros.ts                # BMR/TDEE/cálculos
+│   ├── utils.ts                 # cn() do shadcn
+│   └── utils-format.ts          # formatadores pt-BR
+├── types/
+│   └── database.ts              # Supabase generated types (manter sincronizado!)
+├── components/ui/               # shadcn primitivos
+└── features/
+    ├── auth/
+    │   ├── context/auth-context.ts
+    │   ├── components/auth-guard.tsx
+    │   ├── hooks/useAuth.ts     # ⚠️ camelCase (legado!)
+    │   └── routes/{login,signup}.tsx
+    ├── home/routes/index.tsx
+    ├── dashboard/routes/dashboard.tsx
+    ├── onboarding/...           # Fase 2
+    ├── profile/...              # Fase 2
+    └── foods/                   # Fase 3
+        ├── lib/{types,schemas,query-keys}.ts
+        ├── hooks/use-*.ts       # kebab-case
+        ├── components/*.tsx
+        └── routes/*.tsx
+```
 
-### Item B — Curações: 11 vs 13
+### Padrões obrigatórios
 
-Blueprint mencionava 13. No banco V2 vieram 11. Diferença pequena.
-Ajustar via UPDATE pontual se aparecer alimento óbvio com
-`default_serving_g = 100` que deveria ter unidade natural.
+**1. `useAuth` em camelCase, todos os outros hooks em kebab-case.**
 
-### Item C — RLS user-scoped — RESOLVIDO ✅ (Fase 1)
+`useAuth` é feature mais antiga (Fase 1) e ficou assim. Features novas usam
+`use-profile`, `use-food-search`, `use-toggle-hide` etc.
 
-### Item D — `supabase/.temp/` regenera
+**2. Tipos do Supabase em `@/types/database`.**
 
-`.gitignore` segura. Cache do Supabase CLI sendo regenerado.
+NÃO `@/lib/database.types` (era o que eu chutei errado na primeira tentativa).
 
-### Item E — Bundle size aviso ~660kb minified
+**3. `QueryClient` instanciado INLINE em `main.tsx`.**
 
-Foi de 600kb (Fase 1) pra 661kb com a Fase 2. 188kb gzip. Code-splitting
-via dynamic import vai ser feito na Fase 6 (PWA). Por enquanto, ignorar.
+Não tem arquivo `query-client.ts` separado. Não criar — segue o padrão atual.
 
-### Item F — `forwardRef` deprecation em React 19
+**4. Hooks de query retornam objeto amigável, NÃO o cru do TanStack.**
 
-`radio-group.tsx` e `progress.tsx` (Fase 2) também usam o padrão antigo.
-Quando bater warning real ou no próximo refactor grande, migrar tudo de
-uma vez.
+```ts
+// ✅ CORRETO — padrão do projeto
+return {
+  profile: result.data,
+  loading: result.isLoading,
+  error: result.error,
+  refetch: result.refetch,
+}
 
-### Item G — TS 6 + LSP do Cursor: aviso de `baseUrl` deprecated
+// ❌ ERRADO — não fazer
+return useQuery({ ... })  // expõe demais
+```
 
-Não mexer — sugestão do aviso quebra o alias `@/`. Build CLI ignora.
+**5. Tipos gerados pelo Supabase tipam campos sem nullability honesta.**
 
-### Item H — Warnings do React Router v6 sobre v7
+A RPC `search_foods` retorna `brand: string` no tipo gerado, mas o banco
+manda `null`. **Sempre criar tipos manuais** em `lib/types.ts` da feature
+quando o resultado tem optional fields, e fazer `as unknown as MyType`
+no boundary.
 
-`v7_startTransition`, `v7_relativeSplatPath` no console em dev. Avisos
-de "future flag", silenciáveis com flags de opt-in. Inofensivos.
+**6. RLS está ativa em tudo. Não tentar contornar.**
 
-### Item I — Forgot/reset password
+Cada user só vê seus próprios `profiles`, `user_food_prefs`, `daily_logs`,
+etc. Foods globais (TACO/OFF com `user_id IS NULL`) são SELECT-only pra
+todos os users. Schema das tabelas está em §4.
 
-Não implementado. Sub-fase 1.1 do blueprint. Próxima conta esquecida =
-primeira pressão pra fazer.
+**7. Forms: pattern fixo com RHF + zod + shadcn `<Form>` + Sonner**
 
-### Item J — Defesa em camadas pro timezone (NOVO)
+Padrão estabelecido em Fase 2 (`profile-edit.tsx`) e Fase 3 (`food-new.tsx`):
 
-Migration 8.5 corrigiu o servidor (default da coluna usa fuso BR). Mas
-se o app for usado fora do BR (user viajando, fora do horário comercial
-de SP), os logs ainda podem ficar 1h+ off do "dia" do user. Plano B
-seria o cliente mandar `logged_on` explícito calculado em JS local.
-Resolve completamente, mas adiciona complexidade. Por enquanto,
-hardcode BR resolve o caso comum.
+```ts
+const form = useForm<InputType, unknown, OutputType>({
+  resolver: zodResolver(schema),
+  mode: 'onSubmit',
+  defaultValues: DEFAULTS,
+})
 
-### Item K — Transação real no submit do onboarding (NOVO)
+const handleSave = async () => {
+  const ok = await form.trigger()
+  if (!ok) {
+    toast.error('Há campos com erro. Revise e tente de novo.')
+    return
+  }
+  const values = form.getValues() as unknown as OutputType
+  mutation.mutate(values, { onSuccess: ..., onError: ... })
+}
 
-`use-complete-onboarding` faz UPDATE profiles + INSERT weight_logs como
-2 chamadas separadas. Se INSERT falhar mas UPDATE já passou, fica
-inconsistente (best effort: warning no console, onboarding considera-se
-completo). Pra atomicidade real, criar RPC server-side. Não urgente.
+// JSX:
+<form onSubmit={(e) => e.preventDefault()}>
+  ...
+  <Button type="button" onClick={handleSave}>Salvar</Button>
+</form>
+```
 
-### Item L — Steps do onboarding em pasta de feature de onboarding (NOVO)
+Notas críticas:
+- **Botão `type="button"` + `onClick`**, NÃO submit via Enter.
+- **Form não submete sozinho** (`onSubmit={preventDefault}`).
+- **`useForm` com 3 generics**: `<Input, unknown, Output>` pra discriminated
+  unions ou schemas com `.optional()` funcionarem com RHF v8.
+- **NÃO usar `.transform()` no zod** — RHF v8 + discriminated union quebra.
+  Normalização ('' → null, trim, etc) acontece no `mutationFn` do hook.
 
-`MacroEditor` é usado **só** no `/profile/edit`, mas mora em
-`src/features/onboarding/components/`. Foi conveniência durante
-desenvolvimento (perto dos outros steps). Quando virar caso de uso
-maior, mover pra `src/features/profile/components/` ou
-`src/components/macro-editor.tsx` (se virar genérico).
+**8. Mutations com optimistic update e shapes diferentes coexistindo**
+
+Quando `queryKey: foodKeys.all` cobre múltiplos shapes (search retorna array,
+detail retorna objeto), **NÃO usar `setQueriesData` genérico**. Filtrar por
+predicate na queryKey:
+
+```ts
+queryClient.setQueriesData<FoodSearchResult[]>(
+  {
+    queryKey: foodKeys.all,
+    predicate: (query) => query.queryKey[1] === 'search',
+  },
+  (old) => { ... }
+)
+```
+
+Bug do B6 (fix do toggleFavorite): violar isso quebra com `old.map is not a
+function` quando o detail entra no cache.
+
+**9. Query keys centralizadas em `lib/query-keys.ts` por feature**
+
+```ts
+export const foodKeys = {
+  all: ['foods'] as const,
+  search: (params) => ['foods', 'search', params] as const,
+  detail: (id) => ['foods', 'detail', id] as const,
+  hidden: () => ['foods', 'hidden'] as const,
+}
+```
+
+Convenção: `feature.all` é o prefix maior pra invalidação ampla. Subseções
+sempre como `['feature', 'subname', ...]` pra filter por predicate funcionar.
+
+**10. Componentes shadcn que NÃO temos**
+
+Ricardo NÃO tem `<Switch>`, `<Checkbox>`, `<Select>`, `<Dialog>`, `<Sheet>`,
+`<DropdownMenu>`. Pra essas:
+- Checkbox → `<input type="checkbox">` cru (vide profile-edit, food-form-fields)
+- Select → `<RadioGroup>` (vide food-form-mode-select)
+- Dropdown/Sheet → implementação manual `div absolute` (vide food-row-menu)
+
+Não sugerir instalar sem perguntar.
+
+### Estilo de comentário
+
+Código tem comentários PORTUGUESES, explicativos, sobre **decisões** (não
+sobre "o que o código faz"). Padrão de docs internas: bloco no topo do
+arquivo explicando *por quê*, comentário inline quando tem decisão sutil.
+
+Exemplos válidos:
+- "RHF v8 + zod v4 + discriminated union interage mal com transforms"
+- "Cast intencional: tipo gerado não preserva nullability"
+- "Default 100g quando OFF não declara serving — fallback canônico de
+  rótulos brasileiros"
 
 ---
 
-## Lições aprendidas (pra futuras fases)
+## 4. SCHEMA DO BANCO (CHEAT SHEET)
 
-(da Fase 0)
+### Tabelas relevantes pra Fase 4
 
-1. Build da Vercel é mais estrito que `bun dev` local. TS versions diferem.
-2. Excel/Windows mostra UTF-8 sem BOM como Latin-1 (mojibake). Visualização.
-3. CSV do Supabase usa `;` como separador.
-4. shadcn CLI atual está em transição. Copiar manualmente é mais seguro.
+```
+daily_logs (user_id, logged_on, calorie_target_snapshot,
+            protein_target_snapshot, carb_target_snapshot,
+            fat_target_snapshot, plan_id NULL, ...)
+   UNIQUE (user_id, logged_on)
+   default logged_on = (now() AT TIME ZONE 'America/Sao_Paulo')::date
+   ↓ FK 1:N
+log_meals (id, daily_log_id, name, sort_order, plan_meal_id NULL)
+   ↓ FK 1:N
+log_entries (id, log_meal_id, food_id, grams, kcal, protein, carbs, fat,
+             is_off_plan boolean)
+```
 
-(da Fase 1)
+**Campos desnormalizados em `log_entries`** (kcal, protein, carbs, fat):
+calculados no momento do log a partir do food + grams. Editar food depois
+**não** muda logs antigos. Decisão deliberada.
 
-5. Bloco markdown de chat pode comer caracteres em paste longo. Pra
-   arquivos não-triviais, entregar via download direto.
-6. Quando erro do tsc parece absurdo, suspeitar primeiro de caractere
-   faltando muitas linhas acima.
-7. TS 6 + Vite 8 + R19 + flags estritas é stack bleeding-edge.
-8. `StrictMode` em dev faz componentes re-renderizarem 2x.
-9. PowerShell mostra arquivo UTF-8 com mojibake no `cat`.
+### Tabelas de plan (Fase 5+)
 
-(da Fase 2)
+```
+meal_plans (id, user_id, name, is_active, ...)
+   UNIQUE partial (user_id) WHERE is_active = true  ← 1 ativo por user
+   ↓ FK 1:N
+plan_meals (id, plan_id, name, sort_order)
+   ↓ FK 1:N
+plan_slots (id, plan_meal_id, type 'OR'|'ITEMS', sort_order)
+   ↓ FK 1:N (quando type='OR')      |  ↓ FK 1:N (quando type='ITEMS')
+slot_options (id, plan_slot_id)     |  option_items (id, plan_slot_id, food_id, grams)
+   ↓ FK 1:N
+option_items (id, slot_option_id, food_id, grams)
+```
 
-10. **Aritmética mental do modelo é não-confiável.** Pra qualquer
-    "esperado" numérico (BMR, TDEE, conversões g↔%, soma de macros),
-    gerar via Python no `bash_tool` antes de pedir validação. Calcular
-    de cabeça custou retrabalho real (Bloco 1, Bloco 6).
+E `plan_day_adjustments` (user_id, daily_log_id, plan_meal_id,
+plan_slot_id, picked_option_id, ...): registra escolhas pontuais que
+divergem do plano sem alterá-lo.
 
-11. **Inputs numéricos com unidade precisam de string em edição local.**
-    `<input type="number" step="0.1" value={x.toFixed(1)}>` causa
-    pulo de casa decimal — navegador interrompe digitação. Padrão:
-    estado local `editing: string | null`, commita no `onBlur`/Enter.
-    Vide `UnitInput` em `macro-editor.tsx`.
+### Tabelas de food
 
-12. **UI dual-mode precisa de modelo conceitual explícito antes de
-    codar.** O v1 do MacroEditor misturou "kcal derivado" e "kcal
-    independente com warnings de soma" no mesmo modelo, causando UX
-    incoerente. Refactor 11.1 separou: modo g (kcal=soma), modo %
-    (kcal independente, % fecham 100). Antes de UI complexa: escrever
-    o modelo, listar invariantes, depois codar.
+```
+foods (id, user_id NULL, source 'taco'|'open_food_facts'|'custom'|'composite',
+       external_id NULL, name, brand, kcal_per_100g, protein_per_100g,
+       carb_per_100g, fat_per_100g, fiber_per_100g, sugar_per_100g,
+       saturated_fat_per_100g, sodium_mg_per_100g, default_serving_g,
+       serving_label, recalc_whole_units_only, is_archived,
+       macros_manually_overridden, category, created_at)
+   user_id IS NULL → global (TACO, OFF cacheado)
+   user_id IS NOT NULL → custom/composite do user
 
-13. **Tipos do Supabase são estritos por design — usar.** Quando o
-    `.update()` reclama de `Record<string, unknown>`, a solução
-    correta é `Database['public']['Tables']['profiles']['Update']`,
-    não cast. Tipo capturou erro real (faltava enum no payload).
+user_food_prefs (id, user_id, food_id, is_favorite, is_hidden,
+                 use_count, last_used)
+   UNIQUE (user_id, food_id)  ← upsert com onConflict='user_id,food_id'
 
-14. **Modelo (Claude) não tem relógio em tempo real.** Recebe data
-    atual no system prompt e não atualiza durante a conversa. Quando
-    o user reporta data de algo (`logged_on=2026-05-07`), comparar
-    com a data do system prompt antes de investigar bug. Bloco 10 teve
-    investigação desnecessária de timezone porque eu não conferi a
-    data atual antes.
+composite_food_items (id, composite_food_id, ingredient_food_id, grams,
+                      sort_order)
+   pra Fase 4.5/5 — receitas compostas (NÃO implementadas na Fase 3,
+   adiadas)
+```
+
+### Tabelas de profile / weight
+
+```
+profiles (id, display_name, sex, birth_date, height_cm, weight_kg,
+          activity_level, goal, calorie_target, protein_target,
+          carb_target, fat_target, onboarding_completed, ...)
+
+weight_logs (id, user_id, weight_kg, logged_on)
+   UNIQUE (user_id, logged_on)
+```
+
+### RPC `search_foods` (CRÍTICA pra Fase 4 também)
+
+```sql
+search_foods(p_user_id uuid, p_query text, p_filter text DEFAULT 'all',
+             p_limit integer DEFAULT 30)
+```
+
+**Filtros aceitos** (literais exatos):
+- `'all'` — TACO + custom + composite + OFFs JÁ USADOS pelo user
+- `'taco'` — só TACO
+- `'off'` — só OFFs (incluindo não-usados — mostra cacheados antigos)
+- `'mine'` — só foods criadas pelo user
+- `'favorites'` — só com `is_favorite=true`
+- `'recent'` — só com `last_used IS NOT NULL`
+- `'frequent'` — só com `use_count > 0`
+
+**Ranking** (server-side, no `rank_score`):
+- Similaridade trigram com `unaccent` (peso 10)
+- Bonus +2 pra cozidos/grelhados/assados; penalidade -2 pra crus
+- Bonus por uso (`LEAST(use_count, 20) * 0.5`)
+- Bonus +5 se usado nos últimos 7 dias
+- Bonus +3 se favoritado
+- Bonus +1 se TACO
+
+Filtro `'all'` exclui OFF se `use_count = 0` — OFFs cacheados não-usados
+não poluem a busca padrão; user precisa abrir filtro `'off'` pra ver.
+
+`search_foods` JÁ FILTRA `is_hidden=true` automaticamente — feature de
+hide pega de graça.
 
 ---
 
-## Próximas fases (do blueprint)
+## 5. FASE 0 — FECHADA ✅ (recap mínimo)
 
-### Fase 3 — Banco de alimentos + busca
+End-to-end vivo: GitHub → Vercel → Vite bundle → React → Supabase
+client tipado → query real → 591 alimentos renderizados.
 
-- Página de busca usando RPC `search_foods`
-- Cache de OFF (Open Food Facts) sob demanda
-- UI pra criar custom foods
-- HiddenFoodsSection no profile (Item L do v1)
+Stack: Vite 8 + React 19 + TS 6 + Tailwind v3 + shadcn classic.
+Backend Supabase próprio (SP). Detalhes no histórico.
 
-### Fase 4 — Daily logs (registro diário)
+---
 
-- UI de "comi tal alimento, tal porção"
-- Tabela diária com totais
-- Histórico
+## 6. FASE 1 — FECHADA ✅ (recap mínimo)
 
-### Fase 5 — Meal plans
+Auth foundation: TanStack Query + react-router + RHF + zod + sonner.
+Rotas: `/`, `/login`, `/signup`, `/dashboard` (com AuthGuard).
+Trigger `handle_new_user` validado: signup cria row em `auth.users` E
+em `public.profiles`.
 
-- Templates de plano alimentar
-- Slots → opções → entries
-- Activate plan
+Provider tree: `StrictMode → QueryClient → AuthProvider → App`.
 
-### Fase 6 — PWA
+---
 
-- Service worker
-- Offline básico
-- Code-splitting (resolve Item E)
+## 7. FASE 2 — FECHADA ✅ (recap mínimo)
 
-### Fase 7+ — Polish, observability, refactors
+Onboarding multi-step + BMR/TDEE/macros + persistência + `/profile`
+readonly + `/profile/edit` com MacroEditor dual-mode (g/%) + AuthGuard
+v2 (sem user → /login; sem onboarding → /onboarding; pronto → children).
+2 contas validadas em prod.
 
-- Migrar `forwardRef` (Item F)
-- Forgot password (Item I)
-- Despublicar Lovable V1 (Item A)
-- Etc
+**Padrões críticos estabelecidos aqui** (usados na Fase 3 também):
+- `useForm` com generic Output explícito pra zod com optional/transform
+- `MacroEditor` source-of-truth em gramas, modo controla display
+- `UnitInput` com string em edição local (evita pulo de casa decimal)
+- Migration 8.5 hardcoda timezone BR no default de `daily_logs.logged_on`
+
+---
+
+## 8. FASE 3 — FECHADA ✅ (DETALHADA — fase recém-fechada)
+
+### Entrega final
+
+Rota `/foods` com:
+- **Busca ranqueada** TACO + custom + composite (com 7 filtros pills)
+- **Estrela** pra favoritar com optimistic update
+- **Menu •••** com "Ocultar" + toast undo de 5s
+- **FAB** `+` no canto inferior pra criar custom food
+- **Rota `/foods/new`** com form dual-mode (Por 100g / Por porção)
+- **Rota `/foods/:id`** detail readonly (mostra macros por porção E por 100g)
+- **Rota `/foods/:id/edit`** edit (só per-100g, só pro dono)
+- **Seção "Alimentos ocultos"** colapsável no `/profile`
+
+### Blocos executados
+
+| Bloco | Conteúdo | Commit |
+|---|---|---|
+| B1 | useFoodSearch hook + /foods skeleton | b3c4480 |
+| B2 | Search bar com debounce + skeleton | 2561088 |
+| B3 | Filter pills (7 filtros) | 0f31e59 |
+| B4 | Toggle favorite com optimistic | f8a5d8e |
+| B5 | Create custom food (form dual-mode) | 7e99243 |
+| B6 | Detail readonly + Edit | 8c29318 |
+| B6-fix | Toggle favorite quebrava com detail cache | 89111e8 |
+| B7+B8 | OFF API integration (REVERTED — ver §10) | — |
+| B9 | Hide foods + undo + profile section | 874b1be |
+
+### Decisões importantes
+
+**1. Tipos do Supabase para `search_foods` retornam SEM nullability.**
+
+Workaround: criamos `FoodSearchResult` em `lib/types.ts` com nullability
+honesta. Cast `as unknown as FoodSearchResult[]` no hook.
+
+**2. Filtro `'all'` da `search_foods` exclui OFFs não-usados.**
+
+Comportamento intencional do SQL. Não é bug. Pra ver OFFs cacheados,
+filtro `'off'`. Pra OFFs aparecerem em `'all'`, precisa de `use_count > 0`
+(que vem da Fase 4 quando user loga).
+
+**3. RHF v8 + zod v4 + discriminated union NÃO funciona com `.transform()`.**
+
+Erro de tipo cascateava em todos os sub-componentes do form. Solução:
+remover `.transform()` do schema, normalizar no `mutationFn` do hook,
+e tipar `useForm<Input, unknown, Output>` com 3 generics.
+
+**4. Cache híbrido (search array + detail object) sob mesmo prefix.**
+
+`foodKeys.all = ['foods']` cobre `['foods','search',...]` (array) e
+`['foods','detail',id]` (objeto). `setQueriesData` ingênuo quebra com
+`.map is not a function`. Solução: predicate por `queryKey[1]`.
+
+**5. FAB (Floating Action Button) é padrão mobile-first do app.**
+
+`fixed bottom-6 right-6 z-10` com ícone `Plus` da lucide. App é PWA
+mobile-first, FAB é mais ergonômico que header com link.
+
+**6. Edit usa SEMPRE per-100g (não dual-mode).**
+
+Banco guarda canônico per-100g. Reverter pra "Por porção" tem ambiguidade
+(30g→100g e 33g→100g podem dar mesmo per-100g). Edit parte do canônico.
+
+**7. Menu ••• implementado MANUAL (não shadcn DropdownMenu).**
+
+Evitou instalar `@radix-ui/react-dropdown-menu`. `div absolute` com
+fechamento por click-outside + Esc. Reusável e simples.
+
+**8. Toast com undo de 5s usando `action` do Sonner.**
+
+Padrão moderno (Gmail / Material Design). 5s é window confortável.
+Pra desfazer, dispara mutation oposta com `currentIsHidden` invertido.
+
+### Estrutura final da feature foods
+
+```
+src/features/foods/
+├── lib/
+│   ├── types.ts             # FoodSource, FoodSearchFilter, FoodSearchResult
+│   ├── schemas.ts           # customFoodSchema (discriminated) + editFoodSchema
+│   └── query-keys.ts        # foodKeys.{all,search,detail,hidden}
+├── hooks/
+│   ├── use-debounced-value.ts
+│   ├── use-food-search.ts   # RPC search_foods
+│   ├── use-food.ts          # detail + isFavorite + isHidden + isOwn
+│   ├── use-toggle-favorite.ts   # optimistic + rollback
+│   ├── use-toggle-hide.ts       # optimistic com filter (não map)
+│   ├── use-hidden-foods.ts      # lista pro profile section
+│   ├── use-create-food.ts       # INSERT
+│   └── use-update-food.ts       # UPDATE com WHERE user_id (defesa)
+├── components/
+│   ├── food-search-bar.tsx
+│   ├── food-filter-pills.tsx    # 7 pills com scroll horizontal
+│   ├── food-row.tsx             # estrela + ••• + Link wrap
+│   ├── food-row-menu.tsx        # ••• pop-out manual
+│   ├── food-results-list.tsx
+│   ├── food-form-mode-select.tsx     # radio Por 100g / Por porção
+│   ├── food-form-fields.tsx          # campos comuns
+│   ├── food-form-macros-100g.tsx
+│   ├── food-form-macros-serving.tsx  # com preview ao vivo
+│   └── hidden-foods-section.tsx      # collapsible no profile
+└── routes/
+    ├── foods.tsx
+    ├── food-new.tsx
+    ├── food-detail.tsx
+    └── food-edit.tsx
+```
+
+### Lições especificas da Fase 3 (NÃO REPETIR esses erros)
+
+**Erro 1 — Eu chutei endpoint da Open Food Facts em vez de pesquisar.**
+
+Tentei `cgi/search.pl` (CORS bloqueado + 503 global desde abr/2026) e
+`api/v2/search` (não faz full-text). Só depois fiz `web_search` e achei
+que **a solução real é Search-a-licious** via Edge Function. Custou
+~5 mensagens de retrabalho. Próxima vez: web_search desde a primeira
+tentativa pra APIs externas.
+
+**Erro 2 — Eu assumi "commitou" sem verificar.**
+
+B6 ficou não-commitado, mas o fix do B6 sim. Vercel quebrou no fix.
+Daqui pra frente: regra 6 (`git log -3` no fim de cada bloco).
+
+**Erro 3 — Tipo gerado do Supabase não tem nullability honesta.**
+
+Não vi isso até gerar `useFoodSearch`. Demorei pra entender que era um
+problema sistêmico, não só de `search_foods`. Sempre tipar manual no
+boundary de feature pra resultados com optional fields.
+
+**Erro 4 — `setQueriesData` com prefix amplo quebrando shapes diferentes.**
+
+Bug do B4 que só apareceu no B6 (quando detail entrou no cache). Corrigido
+no B6-fix. Lição: `predicate` filtrando `queryKey[1]` é o caminho seguro.
+
+---
+
+## 9. ANTI-PADRÕES OBSERVADOS (PRA NÃO REPETIR)
+
+Anti-padrões que aconteceram em algum momento durante a Fase 3, registrados
+pra próximo Claude evitar:
+
+### A1. Chutar antes de pesquisar
+
+Quando enfrentar problema de API externa, biblioteca, comportamento
+inesperado de framework: **`web_search` primeiro, código depois**. Custa
+1 tool call e pode salvar várias mensagens.
+
+### A2. Entregar 8 arquivos sem distinção visual de novos vs editados
+
+Ricardo perdeu tempo lendo no B6 sem saber quais 4 dos 8 arquivos
+sobrescreveriam código existente. Solução: regra 8.
+
+### A3. Assumir caminhos de arquivo sem confirmar
+
+No início da Fase 3 chutei `src/lib/database.types.ts` quando o real era
+`src/types/database.ts`. Solução: pedir mapa antes de codar bloco grande.
+
+### A4. Otimismo sobre encoding silencioso
+
+Quando Ricardo mostra arquivo com mojibake no `Get-Content`, **isso é
+visual, não bug**. Pra confirmar: `Get-Content X -Encoding UTF8`. Não
+gastar 2 mensagens debatendo encoding sem evidência.
+
+### A5. Pular validação manual e tentar pular pra próximo bloco
+
+Tentei isso na primeira interação do B6. Ricardo cortou: "vou pular pro
+commit pra não gastar crédito a toa". OK, mas a regra é: **validação
+manual é por bloco, não opcional**. Quando Ricardo dá OK, segue.
+
+### A6. Sugerir Edge Function / Docker / Supabase CLI sem confirmar setup
+
+Tentei isso no B7. Ricardo não tinha CLI. Resultado: pivot pra "Caminho B"
+que também não funcionou. Confirmar setup antes de propor solução que
+exige infra nova. Regra 10.
+
+---
+
+## 10. PENDÊNCIAS ABERTAS (prioridade alta primeiro)
+
+### P1 — Open Food Facts: integração via Edge Function (alta)
+
+**Contexto:** B7+B8 foi revertido. O cgi/search.pl da OFF está retornando
+503 globalmente desde abr/2026 (issue documentado: github.com/CodeWithCJ/SparkyFitness/issues/1079).
+A v2 search não faz full-text. A solução real é Search-a-licious via
+proxy server-side.
+
+**Quando atacar:** depois da Fase 4 (que destrava o flow de logar). Não
+adianta cachear OFFs se não dá pra logar eles ainda.
+
+**Como atacar:**
+1. Instalar Supabase CLI + Docker (precisa confirmar com Ricardo)
+2. Criar Edge Function `off-search` em `supabase/functions/off-search/index.ts`
+3. Proxy pra `search.openfoodfacts.org` (Search-a-licious) com User-Agent
+   customizado e filter de `countries_tags=en:brazil`
+4. Cliente JS chama Edge Function (CORS resolvido pelo Supabase)
+5. Reintroduzir os 5 arquivos que apaguei (estavam no /home/claude no
+   commit anterior, mas se precisar consigo refazer com o blueprint
+   como referência)
+
+**Estimativa:** 1-2 dias dependendo do Docker setup.
+
+### P2 — Bundle size warning (média)
+
+700KB / 197KB gzip. Foge do limite recomendado de 500KB. Code-splitting
+via `React.lazy` por rota resolve. Atacar na Fase 7 (PWA), junto com
+service worker.
+
+### P3 — React Router v6 warnings de v7 (baixa)
+
+Console mostra:
+- `v7_startTransition`
+- `v7_relativeSplatPath`
+
+Silenciáveis com flags de opt-in no `<BrowserRouter>`. Inofensivos.
+Atacar quando migrar pra v7 ou no próximo refactor maior.
+
+### P4 — Reset de senha (baixa, mas vira urgente quando alguém esquecer)
+
+Sub-fase 1.1 do blueprint nunca foi feita. Primeira pessoa que esquecer
+a senha vai precisar.
+
+### P5 — `forwardRef` deprecation em React 19 (baixa)
+
+`radio-group.tsx` e `progress.tsx` usam padrão antigo. Quando bater
+warning real ou refactor maior, migrar.
+
+### P6 — Receita composta (média, fase própria)
+
+Fase 2.3 do blueprint (NÃO 2.3 do projeto). Foi adiada pra fase própria
+depois da Fase 3. Composite foods já existem no banco mas UI pra criar
+não. Atacar depois da Fase 4 (precisa AddFoodFlow funcionando).
+
+### P7 — Service workers / PWA install (baixa, fase própria)
+
+Fase 7 do projeto.
+
+### P8 — Migrar `forwardRef` Item F do STATUS antigo (baixa)
+
+Já listado em P5.
+
+### P9 — Transação real no submit do onboarding (baixa)
+
+Item K do STATUS antigo. `use-complete-onboarding` faz 2 chamadas
+separadas. Risco baixo (raramente falha).
+
+### P10 — MacroEditor mora em `onboarding/components/` mas é usado em profile
+
+Item L do STATUS antigo. Refactor quando virar caso maior.
+
+---
+
+## 11. PRÓXIMA FASE — FASE 4 DO PROJETO (= "Fase 3" do blueprint)
+
+⚠️ **Atenção à renumeração:** o blueprint começa em "Fase 0" e tem "Fase 1,
+Fase 2, Fase 3 — Diário Diário, Fase 4 — Planos...". A gente está chamando
+no STATUS de "Fase 0, 1, 2, 3 (= banco de alimentos), 4 (= diário diário)".
+Próximo chat: **Fase 4 = Diário Diário** = "Fase 3" do blueprint, parte 7.
+
+### Entrega da Fase 4
+
+Tela Home (`/dashboard` ou novo `/`) com:
+- DateNavigator (setas pra mudar dia, mostra DD/MM)
+- Daily progress card (ring de calorias central + 3 barrinhas P/C/F)
+- Cards de refeições (log_meals) com seus entries
+- Add entry / delete entry / delete meal
+- Dialog pra criar log_meal manual
+
+### Sub-fases do blueprint
+
+**4.1 — Infraestrutura do daily log**
+- RPC `get_or_create_daily_log(p_user_id, p_date)` — **PRECISA SER CRIADA**
+- `useDailyLog(date)` hook
+- `DateNavigator` component
+
+**4.2 — Daily progress card**
+- Ring + 3 barras com cores conforme convenção
+- Soma todos entries do dia
+
+**4.3 — Meal cards**
+- Lista log_meals com entries
+- "Esperado vs Comido" quando há plano ativo
+- Ações: add/delete entry, delete meal
+
+**4.4 — New meal dialog**
+- Botão "Adicionar refeição" → dialog cria log_meal manual
+
+**Bonus possível (2.6 do blueprint adiado):**
+- `AddFoodFlow` — sheet 2-step (pick meal + quantity)
+- Botão pra logar food a partir de `/foods` (que hoje é só busca)
+
+### Coisas necessárias antes de começar
+
+1. **Criar RPC `get_or_create_daily_log`.** Precisa de SQL. Discutir
+   com Ricardo: criar via dashboard SQL editor ou via migration file.
+   Lógica: SELECT por (user_id, logged_on); se não existe, INSERT com
+   snapshots de targets vindos do profile.
+
+2. **Decidir sobre cleanup-and-seed pra plano ativo.** Se user tem plano
+   ativo, o INSERT do daily_log deve popular log_meals/log_entries baseado
+   no plano. Mas planos só são Fase 5! Pra Fase 4: ignorar plano,
+   `daily_log` começa vazio, user adiciona manualmente.
+
+3. **Decidir UI de quantity input.** Reusar `UnitInput` da Fase 2 ou criar
+   componente novo? `UnitInput` tem dependência do MacroEditor — extrair
+   pra `src/components/unit-input.tsx` faz sentido.
+
+4. **AddFoodFlow é parte da Fase 4 ou fase própria?** Blueprint sugere
+   integrar em `/foods` E em `/log/add`. Recomendo: parte da Fase 4 porque
+   sem ela o flow de logar não fecha.
+
+### Decisões pendentes pra Ricardo na Fase 4
+
+- Onde mora `/` do app autenticado? Hoje é `/dashboard` (placeholder).
+  Trocar pra Home? Manter `/dashboard` como Home?
+- Cor/estilo do ring de calorias (chart.js? SVG manual? recharts?)
+- Botão "logar food" mora em `/foods` (FAB? Header? Na row?) ou só na home?
+
+### Estimativa
+
+4-6 turns (blueprint) — em prática mais, dado padrão de bloqueio detalhado
+do Ricardo. Provavelmente 8-12 blocos pequenos.
+
+---
+
+## 12. FORMATO DE INÍCIO DO PRÓXIMO CHAT
+
+Ricardo vai abrir chat novo com algo tipo:
+
+> "Lê STATUS.md inteiro, especialmente as regras. Vamos começar a Fase 4."
+
+**Resposta esperada:**
+
+1. Ler STATUS inteiro de fato (não pular pras regras)
+2. Confirmar contexto: "Fase 4 = Diário Diário. Estado atual: commit
+   `874b1be`. Banco tem `get_or_create_daily_log` por criar."
+3. **Propor escopo da Fase 4** — quais sub-fases entram, na ordem,
+   estimando blocos
+4. **Listar decisões pendentes** (§11 pontos 1-4 acima) e perguntar
+5. Não codar até ter respostas
+
+**Não fazer:**
+- Pular pra "vou criar a RPC" sem confirmar formato (dashboard vs migration)
+- Assumir que ring de calorias é chart.js
+- Codar componentes antes de Ricardo aprovar escopo
+
+---
+
+## 13. APÊNDICE A — Comandos PowerShell úteis pra inspeção
+
+```powershell
+# Estrutura do projeto
+Get-ChildItem -Recurse -Path src -Force |
+  Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+  Select-Object -ExpandProperty FullName
+
+# Ler arquivo TS com UTF-8 (sem mojibake)
+Get-Content C:\projetos\nutriplan-v2\<caminho> -Encoding UTF8
+
+# Verificar estado git
+git status
+git log --oneline -5
+git diff --stat <paths>
+
+# Build e dev
+bun run build
+bun run dev
+
+# SQL no Supabase (no dashboard, SQL Editor)
+-- Listar RPCs
+SELECT routine_name FROM information_schema.routines
+WHERE routine_schema='public' AND routine_type='FUNCTION';
+
+-- Definição de RPC
+SELECT pg_get_functiondef('public.<nome>'::regproc);
+
+-- Schema de tabela
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema='public' AND table_name='<tabela>'
+ORDER BY ordinal_position;
+```
+
+---
+
+## 14. APÊNDICE B — Padrão de entrega de bloco (template)
+
+Estrutura ideal de mensagem ao final de um bloco de trabalho:
+
+````
+## B<N> — <título curto>
+
+🆕 **Novos (X):** lista
+📝 **Editados (Y):** lista
+
+[comandos PowerShell pra mover arquivos]
+
+```powershell
+bun run build
+bun run dev
+```
+
+## Validação manual (Z min)
+
+[cenários numerados, com expectativa específica em cada um]
+
+## Se passar:
+
+```bash
+git add <paths>
+git commit -m "<tipo(escopo): mensagem>"
+git push
+git log --oneline -3
+```
+
+⚠️ Cola o `git log -3` depois do push.
+
+## Possíveis ruídos antecipados (opcional)
+
+[problemas que podem aparecer, com diagnóstico antecipado]
+````
+
+---
+
+**FIM.** Boa sorte ao próximo Claude. Ricardo é direto, valoriza honestidade
+sobre o que você não sabe, e não tolera retrabalho por chute. Pesquisa
+quando não sabe. Confirma quando não tem certeza. Entrega blocos pequenos.
