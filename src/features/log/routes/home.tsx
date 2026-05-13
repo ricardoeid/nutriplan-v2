@@ -2,16 +2,19 @@ import { useState } from 'react'
 
 import { getTodayBR } from '@/lib/dates'
 
+import { DailyProgressCard } from '../components/daily-progress-card'
 import { DateNavigator } from '../components/date-navigator'
+import { useDailyLog } from '../hooks/use-daily-log'
 
 // Home autenticada (Diário Diário). Match visual V1:
 //   - Header só com DateNavigator no formato "◀ 📅 Hoje, 13 de maio ▶"
 //     (sem botões "Alimentos"/"Perfil" — esses ficam no BottomNav)
-//   - Conteúdo: placeholder no B3.5; ganha DailyProgressCard no B4,
-//     MealCards no B5, NewMealDialog no B6.
-//   - `pb-20` reserva espaço pro BottomNav fixed.
+//   - DailyProgressCard (B4) com ring kcal + barras de macros + "Restante"
+//   - MealCards (B5) — em construção
+//   - `pb-24` reserva espaço pro BottomNav fixed.
 function HomePage() {
   const [dateISO, setDateISO] = useState(getTodayBR())
+  const { dailyLog, totals, loading, error } = useDailyLog(dateISO)
 
   return (
     <div className="min-h-screen bg-background text-foreground pb-24">
@@ -21,14 +24,27 @@ function HomePage() {
         </div>
       </header>
 
-      <main className="max-w-md mx-auto p-4">
-        <p className="text-sm text-muted-foreground text-center py-12">
-          Data selecionada: <span className="tabular-nums">{dateISO}</span>
-          <br />
-          <span className="text-xs">
-            DailyProgressCard chega no B4, MealCards no B5.
-          </span>
-        </p>
+      <main className="max-w-md mx-auto p-4 space-y-4">
+        {loading && (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            Carregando diário...
+          </p>
+        )}
+        {error && (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error instanceof Error
+              ? error.message
+              : 'Erro ao carregar diário'}
+          </p>
+        )}
+        {!loading && !error && (
+          <>
+            <DailyProgressCard totals={totals} dailyLog={dailyLog} />
+            <p className="text-sm text-muted-foreground text-center py-8">
+              MealCards chegam no B5.
+            </p>
+          </>
+        )}
       </main>
     </div>
   )
