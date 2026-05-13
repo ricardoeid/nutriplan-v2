@@ -8,8 +8,8 @@ import {
   FormItem,
   FormLabel,
 } from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { UnitInput } from '@/components/unit-input'
 import { type OnboardingFullData } from '../lib/schemas'
 
 const STORAGE_KEY = 'nutriplan:macro-editor-mode'
@@ -18,6 +18,29 @@ const KCAL_PER_G = { protein: 4, carb: 4, fat: 9 } as const
 // Tolerância da soma dos % em modo percentual: 99.5 a 100.5 OK.
 // Cobre arredondamento pra inteiro nos g sem deixar passar erro real.
 const SUM_TOLERANCE_PP = 0.5
+
+// Storage de gramas em múltiplos de 0.25 (sugestão do Ricardo).
+// Por quê: round-trip g↔% precisa preservar o valor digitado em %.
+// Como kcal/g é 4 pra prot/carbo e 9 pra gordura, valores em % comuns
+// (35%, 50%, etc.) geram gramas que são naturalmente múltiplos de 0.25
+// pra os macros ×4. Pra ×9 (gordura), a aproximação 0.25 mantém o
+// drift abaixo de 0.05pp — invisível com toFixed(1) no display.
+//
+// Inteiro só não basta: proteína 35% de 2500 = 218.75g; ao arredondar
+// pra 219 e voltar, volta 35.04% (limpo). MAS carbo 50% de 2500 = 312.5g;
+// ao arredondar pra 313, volta 50.08% → "50.1%" — drift visível.
+function roundToQuarter(n: number): number {
+  return Math.round(n * 4) / 4
+}
+
+// Formata gramas pra display: mostra inteiro quando inteiro, senão até
+// 2 decimais sem zeros à direita ("218.75", "312.5", "42").
+function formatGramsForDisplay(g: number): string {
+  const rounded = Math.round(g * 100) / 100
+  if (Number.isInteger(rounded)) return String(rounded)
+  // Remove zeros à direita ("12.50" → "12.5", "12.00" → "12")
+  return String(rounded).replace(/\.?0+$/, '')
+}
 
 interface Props {
   form: UseFormReturn<OnboardingFullData>
@@ -49,11 +72,14 @@ export function MacroEditor({ form, disabled = false }: Props) {
 
   // Em modo gramas, mantém o RHF sincronizado: calorie_target = soma dos macros.
   // Sem isso, o save mandaria kcal antigo enquanto user pensou que mudou.
+  // Math.round porque calorias é integer (consistente com onCommit do
+  // input de calorias em modo %).
   useEffect(() => {
     if (mode === 'g' && !disabled) {
+      const target = Math.round(sumKcal)
       const current = form.getValues('calorieTarget')
-      if (current !== sumKcal) {
-        form.setValue('calorieTarget', sumKcal, { shouldDirty: true })
+      if (current !== target) {
+        form.setValue('calorieTarget', target, { shouldDirty: true })
       }
     }
   }, [mode, disabled, sumKcal, form])
@@ -121,7 +147,53 @@ export function MacroEditor({ form, disabled = false }: Props) {
                   type="integer"
                   unit="kcal"
                   value={field.value ?? null}
-                  onCommit={(v) => field.onChange(v ?? undefined)}
+                  onCommit={(v) => {
+                    if (v == null || v === '') {
+                      field.onChange(undefined)
+                      return
+                    }
+                    const num = Number(v)
+                    if (Number.isNaN(num)) return
+                    const newKcal = Math.round(num)
+
+                    // Em modo %, o modelo mental do user é "%s são
+                    // fixos, mudar kcal reescala os gramas". Sem isso,
+                    // gramas ficam congelados e os %s saem do trilho
+                    // (ex: 3600→2500 kcal mantendo 315g de proteína
+                    // dispara display de 50.4% — confuso). Logo, ao
+                    // commitar nova calorias, escalo todos os macros
+                    // pelo ratio (novo/antigo).
+                    const oldKcal = field.value
+                    if (
+                      typeof oldKcal === 'number' &&
+                      oldKcal > 0 &&
+                      newKcal > 0
+                    ) {
+                      const ratio = newKcal / oldKcal
+                      const oldP = form.getValues('proteinTarget') ?? 0
+                      const oldC = form.getValues('carbTarget') ?? 0
+                      const oldF = form.getValues('fatTarget') ?? 0
+                      form.setValue(
+                        'proteinTarget',
+                        roundToQuarter(oldP * ratio),
+                        { shouldDirty: true },
+                      )
+                      form.setValue(
+                        'carbTarget',
+                        roundToQuarter(oldC * ratio),
+                        { shouldDirty: true },
+                      )
+                      form.setValue(
+                        'fatTarget',
+                        roundToQuarter(oldF * ratio),
+                        { shouldDirty: true },
+                      )
+                    }
+
+                    // Parse pra number — zod valida z.number(), passar
+                    // string aqui faz "Expected number, received string".
+                    field.onChange(newKcal)
+                  }}
                   disabled={disabled}
                 />
               </FormControl>
@@ -204,12 +276,14 @@ function MacroFieldGrams({
       render={({ field }) => {
         const grams = field.value ?? null
 
-        // Valor que o input mostra quando NÃO está em edição
+        // Valor que o input mostra quando NÃO está em edição.
+        // Modo g: até 2 decimais, sem zeros à direita (218.75, 312.5, 42).
+        // Modo %: 1 decimal (35.0, 50.0, 15.0).
         const persistedDisplay =
           grams === null
             ? ''
             : mode === 'g'
-              ? String(Math.round(grams))
+              ? formatGramsForDisplay(grams)
               : kcalForPct > 0
                 ? ((grams * kcalPerG) / kcalForPct * 100).toFixed(1)
                 : ''
@@ -229,13 +303,16 @@ function MacroFieldGrams({
                   }
                   const num = Number(strValue)
                   if (Number.isNaN(num)) return
-                  // Converter de volta pra gramas se em modo %
+                  // Storage em múltiplo de 0.25. Round-trip g↔% sem
+                  // drift visível pra macros ×4 (proteína, carbo);
+                  // pra ×9 (gordura) drift máximo de 0.05pp, invisível
+                  // com toFixed(1).
                   if (mode === 'percent') {
                     if (kcalForPct <= 0) return
                     const g = (num / 100 * kcalForPct) / kcalPerG
-                    field.onChange(Math.round(g))
+                    field.onChange(roundToQuarter(g))
                   } else {
-                    field.onChange(Math.round(num))
+                    field.onChange(roundToQuarter(num))
                   }
                 }}
                 disabled={disabled}
@@ -248,56 +325,3 @@ function MacroFieldGrams({
   )
 }
 
-// === UnitInput ===
-// Wrapper de Input que: (a) mostra unidade fixa à direita; (b) usa
-// estado local de string em edição pra não interromper a digitação
-// (corrige o "pulo de casa decimal" do v1); (c) só commita o valor
-// pro pai no onBlur ou Enter.
-interface UnitInputProps {
-  type: 'integer' | 'decimal'
-  unit: string
-  value: string | number | null
-  onCommit: (value: string | null) => void
-  disabled?: boolean
-}
-
-function UnitInput({ type, unit, value, onCommit, disabled }: UnitInputProps) {
-  const [editing, setEditing] = useState<string | null>(null)
-
-  const display =
-    editing !== null
-      ? editing
-      : value === null || value === undefined
-        ? ''
-        : String(value)
-
-  const commit = () => {
-    if (editing === null) return
-    onCommit(editing.trim() === '' ? null : editing.trim())
-    setEditing(null)
-  }
-
-  return (
-    <div className="relative">
-      <Input
-        type="text"
-        inputMode={type === 'integer' ? 'numeric' : 'decimal'}
-        disabled={disabled}
-        value={display}
-        onChange={(e) => setEditing(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            commit()
-            ;(e.target as HTMLInputElement).blur()
-          }
-        }}
-        className="pr-10"
-      />
-      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
-        {unit}
-      </span>
-    </div>
-  )
-}

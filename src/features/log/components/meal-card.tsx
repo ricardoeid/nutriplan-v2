@@ -1,5 +1,4 @@
 import { Plus } from 'lucide-react'
-import { toast } from 'sonner'
 
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -12,6 +11,7 @@ interface MealCardProps {
   meal: LogMealWithEntries
   onDeleteEntry: (entryId: string) => void
   onDeleteMeal: (mealId: string, mealName: string) => void
+  onAddFood: (mealId: string) => void
   deleteEntryPending: boolean
   deleteMealPending: boolean
 }
@@ -49,14 +49,10 @@ export function MealCard({
   meal,
   onDeleteEntry,
   onDeleteMeal,
+  onAddFood,
   deleteEntryPending,
   deleteMealPending,
 }: MealCardProps) {
-  const handleAddFood = () => {
-    // B7 wires AddFoodFlow com meal pré-selecionada.
-    toast.info('Adicionar alimento chega no próximo bloco (B7).')
-  }
-
   return (
     <Card>
       <CardContent className="px-0 pt-4 pb-0">
@@ -96,7 +92,7 @@ export function MealCard({
 
         <button
           type="button"
-          onClick={handleAddFood}
+          onClick={() => onAddFood(meal.id)}
           className="w-full flex items-center justify-center gap-2 border-t border-border px-4 py-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
         >
           <Plus className="h-4 w-4" />
