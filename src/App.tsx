@@ -14,6 +14,7 @@ import FoodNewPage from "@/features/foods/routes/food-new"
 import FoodDetailPage from "@/features/foods/routes/food-detail"
 import FoodEditPage from "@/features/foods/routes/food-edit"
 import PlanPlaceholderPage from "@/features/plan/routes/plan-placeholder"
+import PlansPage from "@/features/plans/routes/plans"
 
 function App() {
   return (
@@ -90,6 +91,14 @@ function App() {
           element={
             <AuthGuard>
               <PlanPlaceholderPage />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/planos"
+          element={
+            <AuthGuard>
+              <PlansPage />
             </AuthGuard>
           }
         />
