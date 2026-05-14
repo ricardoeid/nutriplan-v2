@@ -116,8 +116,9 @@ export type PlanDiff = {
 // ─── Validação ──────────────────────────────────────────────────────
 
 // Retorna lista de problemas. Empty = ok pra salvar.
-// Ordem das checks importa pra mensagem do user fazer sentido (avisar
-// nome do plano antes de slot vazio, etc).
+// Terminologia da UI: "Alimento" (slot) + "Alternativa" (option com 1
+// food). Mensagens usam o nome do food da alternativa principal quando
+// label do alimento é vazio — mais útil pro user encontrar o problema.
 export function validateDraft(draft: PlanEditorState): string[] {
   const issues: string[] = []
 
@@ -133,19 +134,24 @@ export function validateDraft(draft: PlanEditorState): string[] {
     }
 
     for (const slot of meal.slots) {
-      const slotLabel = slot.label ?? '(sem categoria)'
+      // Identifica o alimento pelo label (se houver) ou pelo nome do
+      // food da alternativa principal (mais informativo).
+      const primaryFood = slot.options[0]?.items[0]?.food?.name
+      const alimentoLabel =
+        slot.label ?? primaryFood ?? '(sem categoria)'
 
       if (slot.options.length === 0) {
         issues.push(
-          `Slot "${slotLabel}" em "${mealLabel}" precisa de pelo menos 1 opção.`,
+          `Alimento "${alimentoLabel}" em "${mealLabel}" precisa de pelo menos 1 alternativa.`,
         )
         continue
       }
 
       slot.options.forEach((option, idx) => {
-        if (option.items.length === 0) {
+        if (option.items.length === 0 || !option.items[0]?.food) {
+          const altPos = idx === 0 ? 'principal' : `nº ${idx + 1}`
           issues.push(
-            `Opção ${idx + 1} do slot "${slotLabel}" em "${mealLabel}" precisa de pelo menos 1 alimento.`,
+            `Alternativa ${altPos} de "${alimentoLabel}" em "${mealLabel}" está sem alimento.`,
           )
         }
       })

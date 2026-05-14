@@ -19,26 +19,23 @@ import { PlanValidationError } from '../lib/errors'
 
 // Editor de plano alimentar.
 //
-// B3: layout esqueleto + edição de refeições.
-// B4: slots + options (OR) + items + FoodPickerSheet.
-// B5: save com diff FK-safe + validação + ressync diário se ativo.
+// Modelo de UI (Fase 5 refactor):
+//   Refeição
+//     └─ Alimento (slot)
+//          ├─ Alternativa principal (primeira por sort_order)
+//          └─ Alternativas extras
+//   Cada alternativa = 1 food + 1 qty. Sem combinação E.
 //
-// Ordenação das refeições: auto por target_time crescente (null vai pro
-// fim). Decisão de UX da Fase 5.
-//
-// Fluxo do save:
+// Fluxo do save (B5):
 //   1. handleSave dispara useSavePlan.mutateAsync({planId, original, draft})
-//   2. Se PlanValidationError → toast com primeira mensagem, não chama banco
-//   3. Após sucesso do save → refetch da tree já aconteceu (no useSavePlan)
-//   4. resetDraft() → useEffect re-hidrata o draft com ids reais
-//   5. Se o plano é ativo → activate_meal_plan pra ressincronizar diário
-//      de hoje (resolve P14). Toast condicional.
+//   2. PlanValidationError → toast com primeira mensagem
+//   3. Após sucesso → refetch (no useSavePlan) → resetDraft → useEffect
+//      re-hidrata com ids reais
+//   4. Se plano ativo → activate_meal_plan ressincroniza diário de hoje
 export default function PlanEditPage() {
   const { id: planId } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
-  // Validação trivial: se a rota for chamada sem id (não deveria, mas
-  // defensive), mostra erro amigável.
   if (!planId) {
     return (
       <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
@@ -60,35 +57,36 @@ export default function PlanEditPage() {
     addMeal,
     removeMeal,
     updateMeal,
-    addSlot,
-    removeSlot,
-    updateSlot,
-    addOption,
-    removeOption,
-    addItem,
-    removeItem,
-    updateItem,
+    addAlimento,
+    removeAlimento,
+    updateAlimentoLabel,
+    addAlternativa,
+    removeAlternativa,
+    updateAlternativaQty,
     resetDraft,
   } = usePlanEditor(planId)
 
   const savePlan = useSavePlan()
   const activatePlan = useActivatePlan()
 
-  // Ordenação visual aplicada na hora do render. Não muta o draft —
-  // sort_order continua sendo a ordem de adição até o B5 normalizar.
   const sortedMeals = useMemo(() => {
     if (!draft) return []
     return [...draft.meals].sort(compareMealsByTime)
   }, [draft])
 
-  // Quando user escolhe um food no FoodPickerSheet (dentro do
-  // OptionEditor), converte FoodSearchResult → ItemDraftFood e
-  // adiciona o item com a quantidade default do food (mesmo
-  // comportamento do AddFoodQuantityStep da Fase 4 quando abre
-  // direto na sub-view de quantidade).
-  const handleAddItem = (optionId: string, food: FoodSearchResult) => {
+  // Quando user escolhe food pra criar um alimento novo (slot):
+  // converte FoodSearchResult → ItemDraftFood e cria slot+option+item
+  // já com qty default do food.
+  const handleAddAlimento = (mealId: string, food: FoodSearchResult) => {
     const itemFood = foodSearchResultToItemFood(food)
-    addItem(optionId, itemFood, Math.round(food.default_serving_g))
+    addAlimento(mealId, itemFood, Math.round(food.default_serving_g))
+  }
+
+  // Quando user escolhe food pra adicionar alternativa em alimento
+  // existente: cria option+item com qty default do food.
+  const handleAddAlternativa = (slotId: string, food: FoodSearchResult) => {
+    const itemFood = foodSearchResultToItemFood(food)
+    addAlternativa(slotId, itemFood, Math.round(food.default_serving_g))
   }
 
   const isActive = original?.plan.is_active ?? false
@@ -98,18 +96,13 @@ export default function PlanEditPage() {
     if (!draft || !original) return
     try {
       await savePlan.mutateAsync({ planId, original, draft })
-      // Reset → useEffect re-hidrata o draft do query.data fresco.
-      // Ids reais aparecem nos itens que eram drafts antes.
       resetDraft()
 
       if (isActive) {
-        // Ressincroniza o diário de hoje. RPC é idempotente e preserva
-        // log_meals com entries (vide body em §2 do STATUS).
         try {
           await activatePlan.mutateAsync(planId)
           toast.success('Plano salvo e sincronizado com hoje.')
         } catch (activateErr) {
-          // Save deu certo, ressync falhou — avisar mas não bloquear.
           toast.success('Plano salvo. (Falha ao ressincronizar diário.)', {
             description:
               activateErr instanceof Error ? activateErr.message : undefined,
@@ -120,8 +113,6 @@ export default function PlanEditPage() {
       }
     } catch (err) {
       if (err instanceof PlanValidationError) {
-        // Mostra só o primeiro problema — user corrige um por um. O
-        // .issues completo fica disponível pra debug se precisar.
         toast.error(err.issues[0] ?? 'Plano inválido.')
         return
       }
@@ -157,7 +148,6 @@ export default function PlanEditPage() {
         )}
       </div>
 
-      {/* Aviso pra dar contexto: edições só vão pro banco no Salvar. */}
       <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         <div>
@@ -198,8 +188,6 @@ export default function PlanEditPage() {
 
       {draft && !loading && (
         <>
-          {/* Nome do plano (editável inline). onChange já sincroniza com
-              draft — sem debounce porque é estado local barato. */}
           <div className="space-y-1">
             <label
               htmlFor="plan-name"
@@ -233,18 +221,12 @@ export default function PlanEditPage() {
                     meal={meal}
                     onUpdate={(patch) => updateMeal(meal.id, patch)}
                     onRemove={() => removeMeal(meal.id)}
-                    onAddSlot={() => addSlot(meal.id)}
-                    onUpdateSlotLabel={(slotId, label) =>
-                      updateSlot(slotId, { label })
-                    }
-                    onRemoveSlot={removeSlot}
-                    onAddOption={addOption}
-                    onRemoveOption={removeOption}
-                    onAddItem={handleAddItem}
-                    onUpdateItemQty={(itemId, qty) =>
-                      updateItem(itemId, { quantity_g: qty })
-                    }
-                    onRemoveItem={removeItem}
+                    onAddAlimento={(food) => handleAddAlimento(meal.id, food)}
+                    onUpdateAlimentoLabel={updateAlimentoLabel}
+                    onRemoveAlimento={removeAlimento}
+                    onAddAlternativa={handleAddAlternativa}
+                    onRemoveAlternativa={removeAlternativa}
+                    onUpdateAlternativaQty={updateAlternativaQty}
                   />
                 ))}
               </ul>

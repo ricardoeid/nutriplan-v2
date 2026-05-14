@@ -13,7 +13,7 @@ import FoodsPage from "@/features/foods/routes/foods"
 import FoodNewPage from "@/features/foods/routes/food-new"
 import FoodDetailPage from "@/features/foods/routes/food-detail"
 import FoodEditPage from "@/features/foods/routes/food-edit"
-import PlanPlaceholderPage from "@/features/plan/routes/plan-placeholder"
+import PlanoPage from "@/features/plans/routes/plano"
 import PlansPage from "@/features/plans/routes/plans"
 import PlanNewPage from "@/features/plans/routes/plan-new"
 import PlanEditPage from "@/features/plans/routes/plan-edit"
@@ -92,7 +92,7 @@ function App() {
           path="/plano"
           element={
             <AuthGuard>
-              <PlanPlaceholderPage />
+              <PlanoPage />
             </AuthGuard>
           }
         />

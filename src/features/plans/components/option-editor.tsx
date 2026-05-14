@@ -1,105 +1,120 @@
-import { useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { FoodSearchResult } from '@/features/foods/lib/types'
+import { UnitInput } from '@/components/unit-input'
 
-import type { OptionDraft } from '../lib/draft-types'
+import {
+  type OptionDraft,
+  getOptionFood,
+  getOptionQty,
+} from '../lib/draft-types'
 
-import { FoodPickerSheet } from './food-picker-sheet'
-import { ItemEditor } from './item-editor'
-
-interface OptionEditorProps {
+interface AlternativeRowProps {
   option: OptionDraft
-  // 1-based pra display ("Opção 1", "Opção 2"). Calculado pelo pai
-  // (SlotEditor) com base no índice no array.
-  optionNumber: number
-  // True quando há mais de 1 option no slot — mostra botão pra remover
-  // esta opção. Se for a única, não pode remover (slot tem que ter
-  // pelo menos 1 option pra ser válido).
+  // True quando essa alternativa tem o menor sort_order do slot.
+  // Mostra badge "Principal" pra dar pistas visuais. No save, "principal"
+  // é definida apenas pelo sort_order (não há flag no banco).
+  isPrimary: boolean
+  // True quando há 2+ alternativas no slot — habilita o botão de
+  // remover. Slot precisa de no mínimo 1 alternativa pra ser válido.
   canRemove: boolean
-  onAddItem: (food: FoodSearchResult) => void
-  onUpdateItemQty: (itemId: string, quantityG: number) => void
-  onRemoveItem: (itemId: string) => void
+  onUpdateQty: (quantityG: number) => void
   onRemove: () => void
 }
 
-// Card de uma opção dentro de um slot. Renderiza:
-//   - Header: "Opção N" + botão X (se canRemove)
-//   - Lista de items (ItemEditor cada)
-//   - Botão "+ Adicionar item" → abre FoodPickerSheet
+// Row de UMA alternativa dentro de um Alimento (slot).
 //
-// Items dentro da opção são combinados com "E" — ex: Arroz 100g + Feijão
-// 80g é a Opção 1; user que escolher essa opção come os dois juntos.
+// Layout horizontal:
+//   ┌────────────────────────────────────────────────────┐
+//   │ [Principal] Banana prata               [150  g] [🗑]│
+//   │   95 kcal · P 1g · C 24g · G 0.4g                  │
+//   └────────────────────────────────────────────────────┘
 //
-// O badge "OU" entre opções fica no SlotEditor (responsabilidade do pai,
-// porque depende da posição relativa).
-export function OptionEditor({
+// Cada alternativa carrega 1 food (não combinação E). Banco mantém
+// option_items por baixo, mas a UI usa helpers getOptionFood/getOptionQty.
+// Trocar o food é feito removendo + adicionando outra alternativa
+// (mais simples e raramente necessário).
+//
+// Macros preview computadas client-side a partir de quantity_g e
+// food.{macros}_per_100g. Mesmo cálculo dos demais lugares.
+//
+// UnitInput passa string no onCommit (§3 padrão 7) — converter com
+// Number + trocar vírgula por ponto antes de propagar pro state.
+export function AlternativeRow({
   option,
-  optionNumber,
+  isPrimary,
   canRemove,
-  onAddItem,
-  onUpdateItemQty,
-  onRemoveItem,
+  onUpdateQty,
   onRemove,
-}: OptionEditorProps) {
-  const [pickerOpen, setPickerOpen] = useState(false)
+}: AlternativeRowProps) {
+  const food = getOptionFood(option)
+  const qty = getOptionQty(option)
+
+  // Macros preview. Quando food é null (caso edge de plano antigo com
+  // option sem item), mostra placeholders e oculta o preview de macros.
+  const factor = food ? qty / 100 : 0
+  const kcal = food ? food.kcal_per_100g * factor : 0
+  const p = food ? food.protein_per_100g * factor : 0
+  const c = food ? food.carb_per_100g * factor : 0
+  const g = food ? food.fat_per_100g * factor : 0
+
+  const handleQtyCommit = (v: string | null) => {
+    if (v === null) return
+    const n = Number(v.replace(',', '.'))
+    if (Number.isNaN(n) || n <= 0) return
+    onUpdateQty(n)
+  }
 
   return (
-    <div className="rounded-md border bg-muted/30 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h4 className="text-sm font-medium">Opção {optionNumber}</h4>
+    <li className="rounded-md border bg-background p-2">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {isPrimary && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                Principal
+              </span>
+            )}
+            <p className="truncate text-sm font-medium">
+              {food?.name ?? '(sem alimento)'}
+            </p>
+          </div>
+          {food?.brand && (
+            <p className="truncate text-xs text-muted-foreground">
+              {food.brand}
+            </p>
+          )}
+        </div>
+
+        <div className="w-[100px] shrink-0">
+          <UnitInput
+            type="decimal"
+            unit="g"
+            value={qty}
+            onCommit={handleQtyCommit}
+          />
+        </div>
+
         {canRemove && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={onRemove}
-            aria-label="Remover opção"
-            className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+            aria-label="Remover alternativa"
+            className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
+            <Trash2 className="h-4 w-4" />
+          </Button>
         )}
       </div>
 
-      {option.items.length === 0 ? (
-        <p className="mb-2 rounded-md border border-dashed bg-background/60 p-2 text-center text-xs text-muted-foreground">
-          Nenhum alimento. Adicione abaixo.
+      {food && (
+        <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+          {Math.round(kcal)} kcal · P {p.toFixed(1)}g · C {c.toFixed(1)}g · G{' '}
+          {g.toFixed(1)}g
         </p>
-      ) : (
-        <ul className="mb-2 space-y-1.5">
-          {option.items.map((item) => (
-            <ItemEditor
-              key={item.id}
-              item={item}
-              onUpdateQuantity={(qty) => onUpdateItemQty(item.id, qty)}
-              onRemove={() => onRemoveItem(item.id)}
-            />
-          ))}
-        </ul>
       )}
-
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() => setPickerOpen(true)}
-        className="w-full justify-start gap-1 text-muted-foreground"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Adicionar alimento
-      </Button>
-
-      <FoodPickerSheet
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onPick={(food) => {
-          // Sheet fecha sozinho via onOpenChange dentro do FoodPickerSheet.
-          // Apenas propagamos o food selecionado pro pai — a conversão
-          // pra ItemDraftFood + chamada de addItem (com qty default)
-          // acontece no plan-edit.tsx onde temos acesso ao hook.
-          onAddItem(food)
-        }}
-      />
-    </div>
+    </li>
   )
 }

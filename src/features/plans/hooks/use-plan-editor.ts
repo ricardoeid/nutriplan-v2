@@ -5,51 +5,46 @@ import { supabase } from '@/lib/supabase'
 
 import { planKeys } from '../lib/query-keys'
 import {
-  type ItemDraft,
   type ItemDraftFood,
   type MealDraft,
-  type OptionDraft,
   type PlanEditorState,
   type PlanTreeResponse,
   type SlotDraft,
   makeDraftId,
+  makeOptionDraft,
   planTreeToEditorState,
 } from '../lib/draft-types'
 
-// Hook do editor de plano. Combina:
-//   1. Fetch read-only via `useQuery` (cache TanStack) na RPC get_plan_tree
-//   2. Estado local `draft` (useState) — mutações ficam só na memória do
-//      navegador até o B5 implementar o save com diff FK-safe.
+// Hook do editor de plano.
 //
-// Modelo mental: "lousa" — useQuery traz o original do banco, o useState
-// guarda o rascunho. Reload da página descarta a lousa e re-busca o
-// original.
+// Modelo conceitual da UI (Fase 5 — refactor inspirado em planos reais
+// como o PDF de referência):
+//   Refeição
+//     └─ Alimento (slot)       label opcional ("FRUTAS", "PROTEÍNA")
+//          ├─ Alternativa principal  (option sort_order=0)
+//          │     • food + quantity_g
+//          └─ Alternativas extras    (options sort_order>0)
+//                • food + quantity_g
 //
-// Mutadores expostos:
-//   Refeições (B3):
-//     - setPlanName(name)
-//     - addMeal() / removeMeal(id) / updateMeal(id, patch)
-//   Slots/Options/Items (B4):
-//     - addSlot(mealId) / removeSlot(slotId) / updateSlot(slotId, patch)
-//     - addOption(slotId) / removeOption(optionId)
-//     - addItem(optionId, food, quantityG) / removeItem(itemId) / updateItem(itemId, patch)
+// Banco continua com 4 tabelas (plan_meals → plan_slots → slot_options
+// → option_items). A UI esconde a tabela `option_items` forçando
+// sempre 1 item por option. Helpers `getOptionFood`/`getOptionQty`
+// em draft-types.ts abstraem o acesso.
 //
-// Decisão: NÃO há moveMeal/moveSlot — auto-ordenar por target_time (meals)
-// e ordem de adição (slots/options/items via sort_order incremental).
+// Mutators expostos:
+//   Plano:        setPlanName(name)
+//   Refeições:    addMeal() / removeMeal(id) / updateMeal(id, patch)
+//   Alimentos:    addAlimento(mealId, food, qty)
+//                 removeAlimento(slotId)
+//                 updateAlimentoLabel(slotId, label)
+//   Alternativas: addAlternativa(slotId, food, qty)
+//                 removeAlternativa(optionId)
+//                 updateAlternativaFood(optionId, food, qty)
+//                 updateAlternativaQty(optionId, qty)
 //
-// Decisão: addSlot cria o slot já com 1 option vazia. Reduz fricção
-// (slot sem option seria inválido no save). User vê "+ Adicionar item"
-// direto na option, sem precisar clicar "+ Adicionar opção" primeiro.
-//
-// Padrão da invalidação: como o B3-B4 não têm save, não invalidamos cache.
-// B5 vai chamar `queryClient.invalidateQueries({queryKey: planKeys.tree(id)})`
-// após save bem-sucedido pra ressincronizar.
-//
-// Mutações deep-nested usam map imutável explicitamente (em vez de
-// abstração tipo immer ou lodash.set) porque a árvore é pequena
-// (refeições × slots × opções × items raramente passa de algumas dezenas
-// de elementos no total) e mantém a inspeção do que está acontecendo
-// trivial pra futuro Claude.
+// Nota técnica: o tipo `OptionDraft.items` permanece como array por
+// compat com schema do banco. UI sempre cria/mantém length=1. Planos
+// antigos com 2+ items por option vão exibir só o primeiro.
 export function usePlanEditor(planId: string) {
   const query = useQuery({
     queryKey: planKeys.tree(planId),
@@ -59,25 +54,19 @@ export function usePlanEditor(planId: string) {
         p_plan_id: planId,
       })
       if (error) throw error
-      // RPC retorna null quando plano não existe ou não é do user (RLS
-      // via auth.uid() na própria query). Resultado vem como `Json`
-      // genérico — cast pro tipo conhecido (Regra 13: sabemos o shape
-      // porque inspecionamos com pg_get_functiondef).
       return (data ?? null) as unknown as PlanTreeResponse | null
     },
   })
 
   const [draft, setDraft] = useState<PlanEditorState | null>(null)
 
-  // Quando o fetch completa, hidrata o draft. `draft === null` evita
-  // sobrescrever edições do user se a query refetch (ex: window focus).
   useEffect(() => {
     if (query.data && draft === null) {
       setDraft(planTreeToEditorState(planId, query.data))
     }
   }, [query.data, draft, planId])
 
-  // ─── Mutators: plano + refeições ─────────────────────────────────
+  // ─── Plano + refeições ────────────────────────────────────────────
 
   const setPlanName = useCallback((name: string) => {
     setDraft((d) => (d ? { ...d, planName: name } : d))
@@ -108,7 +97,10 @@ export function usePlanEditor(planId: string) {
   }, [])
 
   const updateMeal = useCallback(
-    (mealId: string, patch: Partial<Pick<MealDraft, 'name' | 'target_time'>>) => {
+    (
+      mealId: string,
+      patch: Partial<Pick<MealDraft, 'name' | 'target_time'>>,
+    ) => {
       setDraft((d) =>
         d
           ? {
@@ -123,41 +115,39 @@ export function usePlanEditor(planId: string) {
     [],
   )
 
-  // ─── Mutators: slots ─────────────────────────────────────────────
+  // ─── Alimentos (slots) ────────────────────────────────────────────
+  //
+  // addAlimento cria o slot já com 1 alternativa principal (food +
+  // qty fornecidos). Slot sem alternativa não faz sentido na UI —
+  // user sempre escolhe um food pra começar.
 
-  const addSlot = useCallback((mealId: string) => {
-    setDraft((d) => {
-      if (!d) return d
-      return {
-        ...d,
-        meals: d.meals.map((m) => {
-          if (m.id !== mealId) return m
-          const maxOrder = m.slots.reduce(
-            (max, s) => (s.sort_order > max ? s.sort_order : max),
-            -1,
-          )
-          const newSlot: SlotDraft = {
-            id: makeDraftId(),
-            label: null,
-            sort_order: maxOrder + 1,
-            // Slot novo já vem com 1 option vazia — slot sem option é
-            // inválido no save (B5) e seria fricção fazer o user
-            // clicar "+ Adicionar opção" sempre.
-            options: [
-              {
-                id: makeDraftId(),
-                sort_order: 0,
-                items: [],
-              },
-            ],
-          }
-          return { ...m, slots: [...m.slots, newSlot] }
-        }),
-      }
-    })
-  }, [])
+  const addAlimento = useCallback(
+    (mealId: string, food: ItemDraftFood, quantityG: number) => {
+      setDraft((d) => {
+        if (!d) return d
+        return {
+          ...d,
+          meals: d.meals.map((m) => {
+            if (m.id !== mealId) return m
+            const maxOrder = m.slots.reduce(
+              (max, s) => (s.sort_order > max ? s.sort_order : max),
+              -1,
+            )
+            const newSlot: SlotDraft = {
+              id: makeDraftId(),
+              label: null,
+              sort_order: maxOrder + 1,
+              options: [makeOptionDraft(food, quantityG, 0)],
+            }
+            return { ...m, slots: [...m.slots, newSlot] }
+          }),
+        }
+      })
+    },
+    [],
+  )
 
-  const removeSlot = useCallback((slotId: string) => {
+  const removeAlimento = useCallback((slotId: string) => {
     setDraft((d) => {
       if (!d) return d
       return {
@@ -170,8 +160,8 @@ export function usePlanEditor(planId: string) {
     })
   }, [])
 
-  const updateSlot = useCallback(
-    (slotId: string, patch: Partial<Pick<SlotDraft, 'label'>>) => {
+  const updateAlimentoLabel = useCallback(
+    (slotId: string, label: string | null) => {
       setDraft((d) => {
         if (!d) return d
         return {
@@ -179,7 +169,7 @@ export function usePlanEditor(planId: string) {
           meals: d.meals.map((m) => ({
             ...m,
             slots: m.slots.map((s) =>
-              s.id === slotId ? { ...s, ...patch } : s,
+              s.id === slotId ? { ...s, label } : s,
             ),
           })),
         }
@@ -188,34 +178,35 @@ export function usePlanEditor(planId: string) {
     [],
   )
 
-  // ─── Mutators: options ───────────────────────────────────────────
+  // ─── Alternativas (options) ───────────────────────────────────────
 
-  const addOption = useCallback((slotId: string) => {
-    setDraft((d) => {
-      if (!d) return d
-      return {
-        ...d,
-        meals: d.meals.map((m) => ({
-          ...m,
-          slots: m.slots.map((s) => {
-            if (s.id !== slotId) return s
-            const maxOrder = s.options.reduce(
-              (max, o) => (o.sort_order > max ? o.sort_order : max),
-              -1,
-            )
-            const newOption: OptionDraft = {
-              id: makeDraftId(),
-              sort_order: maxOrder + 1,
-              items: [],
-            }
-            return { ...s, options: [...s.options, newOption] }
-          }),
-        })),
-      }
-    })
-  }, [])
+  const addAlternativa = useCallback(
+    (slotId: string, food: ItemDraftFood, quantityG: number) => {
+      setDraft((d) => {
+        if (!d) return d
+        return {
+          ...d,
+          meals: d.meals.map((m) => ({
+            ...m,
+            slots: m.slots.map((s) => {
+              if (s.id !== slotId) return s
+              const maxOrder = s.options.reduce(
+                (max, o) => (o.sort_order > max ? o.sort_order : max),
+                -1,
+              )
+              return {
+                ...s,
+                options: [...s.options, makeOptionDraft(food, quantityG, maxOrder + 1)],
+              }
+            }),
+          })),
+        }
+      })
+    },
+    [],
+  )
 
-  const removeOption = useCallback((optionId: string) => {
+  const removeAlternativa = useCallback((optionId: string) => {
     setDraft((d) => {
       if (!d) return d
       return {
@@ -231,9 +222,11 @@ export function usePlanEditor(planId: string) {
     })
   }, [])
 
-  // ─── Mutators: items ─────────────────────────────────────────────
-
-  const addItem = useCallback(
+  // Substitui o food da alternativa (mantém o id da option e do item
+  // se possível — preserva refs do banco quando a alternativa já tinha
+  // id real). Se a option ainda não tem item (caso edge de plano
+  // antigo), cria um.
+  const updateAlternativaFood = useCallback(
     (optionId: string, food: ItemDraftFood, quantityG: number) => {
       setDraft((d) => {
         if (!d) return d
@@ -245,13 +238,16 @@ export function usePlanEditor(planId: string) {
               ...s,
               options: s.options.map((o) => {
                 if (o.id !== optionId) return o
-                const newItem: ItemDraft = {
-                  id: makeDraftId(),
-                  food_id: food.id,
-                  quantity_g: quantityG,
-                  food,
-                }
-                return { ...o, items: [...o.items, newItem] }
+                const existing = o.items[0]
+                const newItem = existing
+                  ? { ...existing, food_id: food.id, quantity_g: quantityG, food }
+                  : {
+                      id: makeDraftId(),
+                      food_id: food.id,
+                      quantity_g: quantityG,
+                      food,
+                    }
+                return { ...o, items: [newItem] }
               }),
             })),
           })),
@@ -261,27 +257,8 @@ export function usePlanEditor(planId: string) {
     [],
   )
 
-  const removeItem = useCallback((itemId: string) => {
-    setDraft((d) => {
-      if (!d) return d
-      return {
-        ...d,
-        meals: d.meals.map((m) => ({
-          ...m,
-          slots: m.slots.map((s) => ({
-            ...s,
-            options: s.options.map((o) => ({
-              ...o,
-              items: o.items.filter((i) => i.id !== itemId),
-            })),
-          })),
-        })),
-      }
-    })
-  }, [])
-
-  const updateItem = useCallback(
-    (itemId: string, patch: Partial<Pick<ItemDraft, 'quantity_g'>>) => {
+  const updateAlternativaQty = useCallback(
+    (optionId: string, quantityG: number) => {
       setDraft((d) => {
         if (!d) return d
         return {
@@ -290,12 +267,15 @@ export function usePlanEditor(planId: string) {
             ...m,
             slots: m.slots.map((s) => ({
               ...s,
-              options: s.options.map((o) => ({
-                ...o,
-                items: o.items.map((i) =>
-                  i.id === itemId ? { ...i, ...patch } : i,
-                ),
-              })),
+              options: s.options.map((o) => {
+                if (o.id !== optionId) return o
+                const existing = o.items[0]
+                if (!existing) return o // sem food, nada pra atualizar
+                return {
+                  ...o,
+                  items: [{ ...existing, quantity_g: quantityG }],
+                }
+              }),
             })),
           })),
         }
@@ -304,40 +284,30 @@ export function usePlanEditor(planId: string) {
     [],
   )
 
-  // Reset do draft. Usado após save bem-sucedido (B5): zera o draft pra
-  // null e o useEffect re-hidrata com a query.data fresca (que o
-  // useSavePlan invalidou + refetch). Resultado: editor mostra o estado
-  // atualizado do banco, ids reais nos itens recém-criados.
   const resetDraft = useCallback(() => {
     setDraft(null)
   }, [])
 
   return {
     draft,
-    // Original do banco (resultado da RPC). Caller usa pra computar o
-    // diff no save (B5). Pode ser null durante o loading inicial ou
-    // quando plano não existe.
     original: query.data ?? null,
-    // Distinguir "carregando primeira vez" de "plano não existe":
-    //   loading=true → spinner
-    //   loading=false + draft===null + data===null → "não encontrado"
-    //   loading=false + draft!==null → render normal
     loading: query.isLoading,
     error: query.error,
     notFound: !query.isLoading && !query.error && query.data === null,
-    // Mutators
+    // Plano + refeições
     setPlanName,
     addMeal,
     removeMeal,
     updateMeal,
-    addSlot,
-    removeSlot,
-    updateSlot,
-    addOption,
-    removeOption,
-    addItem,
-    removeItem,
-    updateItem,
+    // Alimentos
+    addAlimento,
+    removeAlimento,
+    updateAlimentoLabel,
+    // Alternativas
+    addAlternativa,
+    removeAlternativa,
+    updateAlternativaFood,
+    updateAlternativaQty,
     // Reset (após save)
     resetDraft,
   }

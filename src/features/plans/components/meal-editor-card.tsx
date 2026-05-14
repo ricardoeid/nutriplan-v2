@@ -7,22 +7,20 @@ import type { FoodSearchResult } from '@/features/foods/lib/types'
 
 import { type MealDraft, isDraftId } from '../lib/draft-types'
 
+import { FoodPickerSheet } from './food-picker-sheet'
 import { SlotEditor } from './slot-editor'
 
 interface MealEditorCardProps {
   meal: MealDraft
   onUpdate: (patch: Partial<Pick<MealDraft, 'name' | 'target_time'>>) => void
   onRemove: () => void
-  // B4: handlers pra slots/options/items que sobem até o hook
-  // (usePlanEditor). MealEditorCard só repassa pro SlotEditor.
-  onAddSlot: () => void
-  onUpdateSlotLabel: (slotId: string, label: string | null) => void
-  onRemoveSlot: (slotId: string) => void
-  onAddOption: (slotId: string) => void
-  onRemoveOption: (optionId: string) => void
-  onAddItem: (optionId: string, food: FoodSearchResult) => void
-  onUpdateItemQty: (itemId: string, quantityG: number) => void
-  onRemoveItem: (itemId: string) => void
+  // Handlers do modelo "Alimento + Alternativa":
+  onAddAlimento: (food: FoodSearchResult) => void
+  onUpdateAlimentoLabel: (slotId: string, label: string | null) => void
+  onRemoveAlimento: (slotId: string) => void
+  onAddAlternativa: (slotId: string, food: FoodSearchResult) => void
+  onRemoveAlternativa: (optionId: string) => void
+  onUpdateAlternativaQty: (optionId: string, quantityG: number) => void
 }
 
 // Card editável de UMA refeição dentro do plan-edit.
@@ -31,55 +29,47 @@ interface MealEditorCardProps {
 //   ┌─────────────────────────────────────────────┐
 //   │ [▸/▾]  [Nome da refeição]  [⏰ HH:MM]  [🗑] │  ← sempre visível
 //   ├─────────────────────────────────────────────┤
-//   │   [Slot 1: Proteína]                        │
-//   │     ┌─ Opção 1 ─┐  OU  ┌─ Opção 2 ─┐        │  ← se expandido (B4)
-//   │   [+ Adicionar slot]                        │
+//   │   [Alimento 1: FRUTAS]                      │
+//   │     • Principal — Mamão papaya 150g         │
+//   │     • Mamão Formosa 150g                    │
+//   │   [Alimento 2: PROTEÍNA]                    │
+//   │     • Ovo cozido 165g                       │  ← expandido (default
+//   │   [+ Adicionar alimento]                    │     pra refeição nova)
 //   └─────────────────────────────────────────────┘
 //
-// Inline edits:
-//   - Nome: <Input> normal, onChange dispara onUpdate({ name })
-//   - target_time: <input type="time"> nativo (mobile-friendly, sem
-//     dependência de date-picker lib). Vazio = null (sem horário).
-//
-// onRemove dispara confirmação simples (window.confirm) só pra evitar
-// click acidental — mesma escolha da rota /planos (sem AlertDialog
-// shadcn instalado).
+// "Adicionar alimento" abre FoodPickerSheet local. O food escolhido
+// cria um slot novo já com 1 alternativa principal.
 export function MealEditorCard({
   meal,
   onUpdate,
   onRemove,
-  onAddSlot,
-  onUpdateSlotLabel,
-  onRemoveSlot,
-  onAddOption,
-  onRemoveOption,
-  onAddItem,
-  onUpdateItemQty,
-  onRemoveItem,
+  onAddAlimento,
+  onUpdateAlimentoLabel,
+  onRemoveAlimento,
+  onAddAlternativa,
+  onRemoveAlternativa,
+  onUpdateAlternativaQty,
 }: MealEditorCardProps) {
-  // Cada card guarda seu próprio estado de expanded. Não vale a pena
-  // promover pro hook do editor — o user só interage com 1 card por
-  // vez, e "remember expanded after refresh" não é requisito.
-  //
-  // Init: refeição recém-criada (id começa com `draft-`) abre já
-  // expandida — economiza 1 click pro user que acabou de adicionar a
-  // refeição e quer colocar slots/items dentro. Refeição vinda do
-  // banco (id real) começa colapsada pra dar visão de lista mais
-  // limpa. useState(initializer) roda só na primeira montagem do card.
+  // Init expanded: refeição recém-criada (id `draft-`) abre expandida —
+  // economiza 1 click pra começar a popular o conteúdo. Refeições
+  // vindas do banco começam colapsadas.
   const [expanded, setExpanded] = useState(() => isDraftId(meal.id))
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const handleRemove = () => {
     const ok = window.confirm(
-      `Remover a refeição "${meal.name}" do plano? (Lembre que nada é salvo até o próximo bloco.)`,
+      `Remover a refeição "${meal.name}" do plano? (Lembre que nada é salvo até clicar em Salvar.)`,
     )
     if (!ok) return
     onRemove()
   }
 
   const handleTimeChange = (value: string) => {
-    // HTML <input type="time"> devolve '' quando user limpa, 'HH:MM'
-    // quando preenche. Normalizamos pra null/'HH:MM' no draft.
     onUpdate({ target_time: value === '' ? null : value })
+  }
+
+  const handlePick = (food: FoodSearchResult) => {
+    onAddAlimento(food)
   }
 
   return (
@@ -112,8 +102,6 @@ export function MealEditorCard({
           value={meal.target_time ?? ''}
           onChange={(e) => handleTimeChange(e.target.value)}
           aria-label="Horário da refeição"
-          // Estilo manual pra casar com Input shadcn (mesma altura/borda).
-          // Sem nativo de shadcn pra time input, então usamos o cru.
           className="h-10 w-[110px] shrink-0 rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
 
@@ -133,7 +121,7 @@ export function MealEditorCard({
         <div className="space-y-3 border-t bg-muted/20 p-3">
           {meal.slots.length === 0 ? (
             <p className="rounded-md border border-dashed bg-background p-3 text-center text-xs text-muted-foreground">
-              Nenhum slot. Adicione um abaixo (ex: "Proteína", "Carbo").
+              Nenhum alimento ainda. Adicione abaixo.
             </p>
           ) : (
             <div className="space-y-3">
@@ -141,13 +129,11 @@ export function MealEditorCard({
                 <SlotEditor
                   key={slot.id}
                   slot={slot}
-                  onUpdateLabel={(label) => onUpdateSlotLabel(slot.id, label)}
-                  onRemove={() => onRemoveSlot(slot.id)}
-                  onAddOption={() => onAddOption(slot.id)}
-                  onRemoveOption={onRemoveOption}
-                  onAddItem={onAddItem}
-                  onUpdateItemQty={onUpdateItemQty}
-                  onRemoveItem={onRemoveItem}
+                  onUpdateLabel={(label) => onUpdateAlimentoLabel(slot.id, label)}
+                  onRemove={() => onRemoveAlimento(slot.id)}
+                  onAddAlternativa={(food) => onAddAlternativa(slot.id, food)}
+                  onRemoveAlternativa={onRemoveAlternativa}
+                  onUpdateAlternativaQty={onUpdateAlternativaQty}
                 />
               ))}
             </div>
@@ -157,14 +143,20 @@ export function MealEditorCard({
             type="button"
             variant="outline"
             size="sm"
-            onClick={onAddSlot}
+            onClick={() => setPickerOpen(true)}
             className="w-full gap-1"
           >
             <Plus className="h-3.5 w-3.5" />
-            Adicionar slot
+            Adicionar alimento
           </Button>
         </div>
       )}
+
+      <FoodPickerSheet
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onPick={handlePick}
+      />
     </li>
   )
 }

@@ -178,6 +178,61 @@ function rawMealToDraft(meal: PlanTreeMealRaw): MealDraft {
   }
 }
 
+// ─── Helpers do modelo "Alimento + Alternativa" ─────────────────────
+//
+// A UI da Fase 5 expõe um modelo simplificado:
+//
+//   Refeição
+//     └─ Alimento (= slot)           label opcional ("FRUTAS")
+//          ├─ Alternativa principal  (= option com sort_order=0)
+//          │     • food + quantity_g
+//          └─ Alternativas extras    (= options com sort_order > 0)
+//                • food + quantity_g
+//
+// Cada alternativa tem EXATAMENTE 1 food (não combinação E). Isso bate
+// com planos nutricionais reais (ver PDF de referência) — entradas são
+// independentes (combinadas por +) e alternativas são substituições
+// puras (ligadas por OU). É a base do motor de substituição da Fase 6.
+//
+// Internamente, mantemos o schema do banco intacto (option_items continua
+// como tabela separada), mas a UI força sempre 1 item por option. Os
+// helpers abaixo escondem isso dos componentes.
+
+export function getOptionFood(option: OptionDraft): ItemDraftFood | null {
+  return option.items[0]?.food ?? null
+}
+
+export function getOptionFoodId(option: OptionDraft): string | null {
+  return option.items[0]?.food_id ?? null
+}
+
+export function getOptionQty(option: OptionDraft): number {
+  return option.items[0]?.quantity_g ?? 0
+}
+
+// Cria uma OptionDraft já com 1 item embutido — usar pra criar
+// alternativa nova via FoodPickerSheet. O caller fornece o food
+// (FoodSearchResult → ItemDraftFood via foodSearchResultToItemFood)
+// e a quantidade inicial.
+export function makeOptionDraft(
+  food: ItemDraftFood,
+  quantityG: number,
+  sortOrder: number,
+): OptionDraft {
+  return {
+    id: makeDraftId(),
+    sort_order: sortOrder,
+    items: [
+      {
+        id: makeDraftId(),
+        food_id: food.id,
+        quantity_g: quantityG,
+        food,
+      },
+    ],
+  }
+}
+
 // ─── Conversor FoodSearchResult → ItemDraftFood ─────────────────────
 
 // Bridge entre o resultado da busca (Fase 3) e o shape que armazenamos
