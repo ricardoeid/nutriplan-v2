@@ -1,8 +1,10 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { supabase } from '@/lib/supabase'
 import { getTodayBR } from '@/lib/dates'
 import { useDailyLog } from '@/features/log/hooks/use-daily-log'
+import type { LogEntryWithFood } from '@/features/log/lib/types'
 
 import { planKeys } from '../lib/query-keys'
 import type { PlanTreeResponse } from '../lib/draft-types'
@@ -49,9 +51,23 @@ export function useTodaysPlan() {
     },
   })
 
+  // Mapa plan_meal_id → entries da refeição do diário de hoje. Fase 6 B1
+  // usa pra decidir o estado visual da refeição no /plano (past-eaten vs
+  // past-empty/future). log_meals sem plan_meal_id (refeições manuais)
+  // ficam fora do mapa — não casam com nenhuma refeição do plano.
+  const entriesByPlanMealId = useMemo(() => {
+    const map = new Map<string, LogEntryWithFood[]>()
+    for (const meal of dailyLogQuery.meals) {
+      if (!meal.plan_meal_id) continue
+      map.set(meal.plan_meal_id, meal.entries)
+    }
+    return map
+  }, [dailyLogQuery.meals])
+
   return {
     planTree: planTreeQuery.data ?? null,
     hasActivePlan: !!planId,
+    entriesByPlanMealId,
     loading: dailyLogQuery.loading || planTreeQuery.isLoading,
     fetching: dailyLogQuery.fetching || planTreeQuery.isFetching,
     error: dailyLogQuery.error ?? planTreeQuery.error,

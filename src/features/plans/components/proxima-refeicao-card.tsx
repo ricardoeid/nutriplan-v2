@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Clock } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock, Shuffle } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
 
 import {
   type PlanTreeMealRaw,
@@ -7,39 +9,33 @@ import {
   type PlanTreeSlotRaw,
   pgTimeToHHMM,
 } from '../lib/draft-types'
+import { mealTotals, optionMacros } from '../lib/option-macros'
 
-interface PlanMealReadonlyProps {
+interface ProximaRefeicaoCardProps {
   meal: PlanTreeMealRaw
 }
 
-// Card read-only de UMA refeição do plano ativo aplicado a hoje (B6).
+// Card "PRÓXIMA REFEIÇÃO" destacado (Fase 6 B1). Layout-alvo: print V1
+// enviado pelo Ricardo no setup da Fase 6 (ver
+// memory/project_v1_visual_reference.md indiretamente — mockup específico
+// do /plano).
 //
-// Layout (modelo simplificado da Fase 5):
-//   ┌─ Café da manhã                          07:00 ─┐
-//   │ ≈ 489 kcal · P 27g · C 55g · G 18g             │
-//   ├────────────────────────────────────────────────┤
-//   │ FRUTAS                              95 kcal    │
-//   │ Mamão papaya — 150g                            │
-//   │ ▸ Ver 2 alternativas                           │
-//   ├────────────────────────────────────────────────┤
-//   │ PROTEÍNA                           234 kcal    │
-//   │ Ovo cozido — 165g                              │
-//   │ (sem alternativas)                             │
-//   └────────────────────────────────────────────────┘
+// Estados visuais:
+//   - Fundo do header levemente destacado (bg-muted/40) com label
+//     "PRÓXIMA REFEIÇÃO" em smallcaps.
+//   - Lista de slots dentro de fundo branco (bg-background).
+//   - Botões "Registrar esta refeição" (primary) e "Quero comer outra
+//     coisa" (outline) no rodapé.
 //
-// Conceitos:
-//   - "Alimento" (slot) = entrada na refeição, com label opcional
-//   - "Alternativa" (option) = food + qty (1:1)
-//   - Principal = primeira alternativa (menor sort_order)
-//   - Totais da refeição = soma da alternativa principal de cada
-//     alimento (evita ambiguidade de "qual alternativa pesar")
+// Out of scope (próximos blocos ligam):
+//   - "Registrar esta refeição" funcional → B3 (MealCommitSheet básico).
+//   - "Quero comer outra coisa" funcional → B2 (sheet de alternativas
+//     dentro do mesmo slot) ou B6 (escolher food novo + engine).
+//   - "Ver N alternativas" como sheet de troca → B2.
 //
-// Out of scope (Fase 6+):
-//   - "toque para escolher" + click handler pra registrar troca em
-//     plan_day_adjustments
-//   - Overlay do que foi comido hoje
-//   - "Registrar esta refeição" pra logar a principal de uma vez
-export function PlanMealReadonly({ meal }: PlanMealReadonlyProps) {
+// Botões ficam DISABLED + title="Em breve" pra deixar UI completa sem
+// criar caminhos quebrados.
+export function ProximaRefeicaoCard({ meal }: ProximaRefeicaoCardProps) {
   const time = pgTimeToHHMM(meal.target_time)
 
   const sortedSlots = useMemo(
@@ -47,30 +43,16 @@ export function PlanMealReadonly({ meal }: PlanMealReadonlyProps) {
     [meal.slots],
   )
 
-  // Totais da refeição = soma da alternativa principal (item[0]) de
-  // cada alimento.
-  const totals = useMemo(() => {
-    return sortedSlots.reduce(
-      (acc, slot) => {
-        const primary = primaryOption(slot)
-        if (!primary) return acc
-        const m = optionMacros(primary)
-        return {
-          kcal: acc.kcal + m.kcal,
-          p: acc.p + m.p,
-          c: acc.c + m.c,
-          g: acc.g + m.g,
-        }
-      },
-      { kcal: 0, p: 0, c: 0, g: 0 },
-    )
-  }, [sortedSlots])
+  const totals = useMemo(() => mealTotals(sortedSlots), [sortedSlots])
 
   return (
-    <article className="rounded-xl border bg-card">
-      <header className="border-b p-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="truncate text-base font-semibold">{meal.name}</h3>
+    <article className="overflow-hidden rounded-xl border bg-card">
+      <header className="bg-muted/40 px-4 pb-3 pt-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Próxima refeição
+        </p>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <h2 className="truncate text-xl font-semibold">{meal.name}</h2>
           {time && (
             <span className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground tabular-nums">
               <Clock className="h-3.5 w-3.5" />
@@ -87,11 +69,11 @@ export function PlanMealReadonly({ meal }: PlanMealReadonlyProps) {
       </header>
 
       {sortedSlots.length === 0 ? (
-        <p className="p-3 text-center text-xs italic text-muted-foreground">
+        <p className="border-t bg-background p-3 text-center text-xs italic text-muted-foreground">
           Refeição sem alimentos planejados.
         </p>
       ) : (
-        <ul className="divide-y">
+        <ul className="divide-y border-t bg-background">
           {sortedSlots.map((slot, idx) => (
             <li key={slot.id} className="p-3">
               <SlotView slot={slot} fallbackLabel={`ITEM ${idx + 1}`} />
@@ -99,11 +81,37 @@ export function PlanMealReadonly({ meal }: PlanMealReadonlyProps) {
           ))}
         </ul>
       )}
+
+      <div className="space-y-2 border-t bg-background p-3">
+        <Button
+          type="button"
+          className="w-full"
+          disabled
+          title="Em breve"
+        >
+          Registrar esta refeição
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled
+          title="Em breve"
+        >
+          <Shuffle className="mr-2 h-4 w-4" />
+          Quero comer outra coisa
+        </Button>
+      </div>
     </article>
   )
 }
 
 // ─── SlotView ───────────────────────────────────────────────────────
+//
+// Cópia adaptada do SlotView original de plan-meal-readonly.tsx (Fase 5).
+// Mantemos lógica idêntica de "Ver N alternativas" expansível. Quando B2
+// implementar "trocar alternativa", esse bloco vira sheet — mas o B1
+// só renderiza leitura.
 
 function SlotView({
   slot,
@@ -136,7 +144,8 @@ function SlotView({
   const primaryQty = Number(primary.items[0]?.quantity_g ?? 0)
   const primaryKcal = optionMacros(primary).kcal
   const altCount = alternatives.length
-  const altLabel = altCount === 1 ? '1 alternativa' : `${altCount} alternativas`
+  const altLabel =
+    altCount === 1 ? '1 alternativa' : `${altCount} alternativas`
 
   return (
     <div>
@@ -210,8 +219,6 @@ function SlotHeader({
   )
 }
 
-// ─── Alternativa (não-principal) ────────────────────────────────────
-
 function AlternativeView({ option }: { option: PlanTreeOptionRaw }) {
   const item = option.items[0]
   if (!item) {
@@ -235,37 +242,5 @@ function AlternativeView({ option }: { option: PlanTreeOptionRaw }) {
         {Math.round(kcal)} kcal
       </p>
     </div>
-  )
-}
-
-// ─── Helpers de cálculo ─────────────────────────────────────────────
-
-function primaryOption(
-  slot: PlanTreeSlotRaw,
-): PlanTreeOptionRaw | undefined {
-  if (slot.options.length === 0) return undefined
-  return [...slot.options].sort((a, b) => a.sort_order - b.sort_order)[0]
-}
-
-function optionMacros(option: PlanTreeOptionRaw): {
-  kcal: number
-  p: number
-  c: number
-  g: number
-} {
-  // UI força 1 item por option, mas pra ser defensivo com planos
-  // antigos com items extras, soma todos. Quando a UI nova reescrever
-  // o plano, items extras desaparecem no save.
-  return option.items.reduce(
-    (acc, item) => {
-      const factor = Number(item.quantity_g) / 100
-      return {
-        kcal: acc.kcal + item.food.kcal_per_100g * factor,
-        p: acc.p + item.food.protein_per_100g * factor,
-        c: acc.c + item.food.carb_per_100g * factor,
-        g: acc.g + item.food.fat_per_100g * factor,
-      }
-    },
-    { kcal: 0, p: 0, c: 0, g: 0 },
   )
 }

@@ -3,30 +3,36 @@ import { Link } from 'react-router-dom'
 import { ClipboardList, Settings } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { getNowMinutesBR } from '@/lib/dates'
 
 import { useTodaysPlan } from '../hooks/use-todays-plan'
-import { PlanMealReadonly } from '../components/plan-meal-readonly'
+import { ProximaRefeicaoCard } from '../components/proxima-refeicao-card'
+import { RefeicaoCollapsedCard } from '../components/refeicao-collapsed-card'
+import { findNextMealId, getMealStatus } from '../lib/meal-status'
 
-// Rota /plano — visão read-only do plano ativo aplicado a hoje (B6).
+// Rota /plano — visão do plano ativo aplicado a hoje.
+//
+// Fase 5 B6: lista readonly simples de PlanMealReadonly.
+// Fase 6 B1: refatora pra destacar "próxima refeição" (card grande,
+//            estilo Print V1) e colapsar as demais com estado visual
+//            (✓ comida / ○ sem entries ou futura).
 //
 // Estados:
 //   - loading: spinner
 //   - error: mensagem
-//   - sem plano ativo: empty-state "Você não tem plano ativo. [Ver meus
-//     planos]" → /planos
-//   - com plano ativo: header (nome do plano + link "Meus planos") +
-//     lista de refeições ordenadas por target_time (mesma ordem do
-//     editor)
+//   - sem plano ativo: empty-state com link pra /planos
+//   - com plano ativo: sub-header "Plano ativo" sutil + cards (destaque +
+//     colapsados ordenados por target_time)
 //
-// Substitui a rota placeholder antiga em src/features/plan/. Após
-// validar, deletar `src/features/plan/` (pasta inteira).
-//
-// Out of scope (Fase 6+):
-//   - 3-tier overlay (planejado vs comido vs ajustes pontuais)
-//   - "Próxima refeição" destacada
-//   - "Quero comer outra coisa" / substituição protein-aware
+// Out of scope (próximos blocos):
+//   - 3-tier overlay com plan_day_adjustments (B2)
+//   - "Quero comer outra coisa" funcional (B2/B6)
+//   - "Registrar esta refeição" funcional (B3)
+//   - Esperado vs Comido no MealCard da Home (B4)
+//   - Motor de substituição protein-aware (B5-B7)
 export default function PlanoPage() {
-  const { planTree, hasActivePlan, loading, error } = useTodaysPlan()
+  const { planTree, hasActivePlan, entriesByPlanMealId, loading, error } =
+    useTodaysPlan()
 
   // Ordenação por target_time crescente. Refeições sem horário ficam
   // no fim, desempate por sort_order. Mesma lógica do plan-edit, mas
@@ -46,10 +52,27 @@ export default function PlanoPage() {
     })
   }, [planTree])
 
+  // Hora atual BR + próxima refeição derivadas no render. Não precisa
+  // ser reativo a cada minuto — refresh natural quando o user voltar à
+  // tab já recalcula. Se virar problema (UI grudada em "próxima" errada
+  // por horas), B1.5 adiciona setInterval de 60s.
+  const nowMinutes = useMemo(() => getNowMinutesBR(), [])
+  const nextMealId = useMemo(
+    () => findNextMealId(sortedMeals, nowMinutes),
+    [sortedMeals, nowMinutes],
+  )
+
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Plano de hoje</h1>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold">Plano de hoje</h1>
+          {hasActivePlan && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Plano ativo
+            </p>
+          )}
+        </div>
         <Button
           asChild
           variant="ghost"
@@ -92,13 +115,6 @@ export default function PlanoPage() {
 
       {!loading && !error && hasActivePlan && planTree && (
         <>
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="text-xs text-muted-foreground">Plano ativo</p>
-            <p className="truncate text-base font-semibold">
-              {planTree.plan.name}
-            </p>
-          </div>
-
           {sortedMeals.length === 0 ? (
             <p className="rounded-md border border-dashed bg-muted/40 p-4 text-center text-sm text-muted-foreground">
               O plano ativo ainda não tem refeições. Edite em{' '}
@@ -112,11 +128,28 @@ export default function PlanoPage() {
             </p>
           ) : (
             <ul className="space-y-3">
-              {sortedMeals.map((meal) => (
-                <li key={meal.id}>
-                  <PlanMealReadonly meal={meal} />
-                </li>
-              ))}
+              {sortedMeals.map((meal) => {
+                const entries = entriesByPlanMealId.get(meal.id) ?? []
+                const status = getMealStatus({
+                  meal,
+                  isNext: meal.id === nextMealId,
+                  hasEntries: entries.length > 0,
+                  nowMinutes,
+                })
+                return (
+                  <li key={meal.id}>
+                    {status === 'next' ? (
+                      <ProximaRefeicaoCard meal={meal} />
+                    ) : (
+                      <RefeicaoCollapsedCard
+                        meal={meal}
+                        status={status}
+                        entries={entries}
+                      />
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </>

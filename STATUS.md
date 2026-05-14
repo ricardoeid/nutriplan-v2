@@ -2066,6 +2066,33 @@ no WHERE. Tipo: "todos os tokens batem OU similaridade total > 0.4".
 Requer ajuste fino do threshold (muito baixo = lixo demais nos resultados).
 Atacar se Ricardo reclamar de buscas falhando por digitação.
 
+### P20 — Clonar plano (NOVO Fase 6 B1 setup, baixa)
+
+Em `/planos`, adicionar ação no menu "..." de cada card de plano: "Clonar".
+Cria cópia com nome "Cópia de X" e abre `/planos/:id/editar`. Útil pra
+criar variações sem reconstruir do zero (ex: plano de cutting + bulking
+com mesma estrutura).
+
+**Implementação:** RPC `clone_meal_plan(p_plan_id uuid)` que faz INSERT
+cascateado de plan + meals + slots + options + items mantendo a árvore.
+Retorna `new_plan_id`. UI no `PlansPage` chama RPC e navega.
+
+Atacar quando Ricardo pedir ou antes da publicação.
+
+### P21 — Primeiro plano criado vira ativo automaticamente (NOVO Fase 6 B1 setup, baixa)
+
+Hoje, criar o primeiro plano não o ativa — user precisa fazer o passo
+manual de "ativar". Confuso pra quem nunca usou. Solução: no `useSavePlan`,
+após criar o plano (vide commit `5ce775b`), checar se o user tem ZERO
+planos ativos antes do save. Se sim, chama `activate_meal_plan(new_id)`
+após `onSuccess`.
+
+**Edge case:** user pode estar criando o 2º plano explicitamente sem
+querer ativar. Por isso checar `count(*) WHERE is_active=true == 0` em
+vez de "é o primeiro plano do user". Mantém autonomia.
+
+Atacar quando Ricardo pedir ou antes da publicação.
+
 ---
 
 ## 13. PRÓXIMA FASE — FASE 6 DO PROJETO (Motor de Substituição)

@@ -44,6 +44,23 @@ export function formatDateDDMMYYYY(dateISO: string): string {
   return `${d}/${m}/${y}`
 }
 
+// Hora atual em BR convertida em minutos desde meia-noite. Usado pra
+// comparar com target_time de refeições (também em minutos) e decidir
+// "qual é a próxima refeição" no /plano (Fase 6 B1).
+//
+// `en-GB` formata HH:MM 24h (sem AM/PM). Recortamos antes do segundo ':'
+// pra ficar robusto se o locale variar e devolver "HH:MM:SS".
+export function getNowMinutesBR(): number {
+  const time = new Date().toLocaleTimeString('en-GB', {
+    timeZone: BR_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const [h, m] = time.split(':').map(Number)
+  return h * 60 + m
+}
+
 // Formata YYYY-MM-DD pra "13 de maio" (display longo em pt-BR, sem ano).
 // Match do header da V1 ("Hoje, 13 de maio") — o prefixo "Hoje, " é
 // responsabilidade do caller (DateNavigator), aqui só o nome do mês.
