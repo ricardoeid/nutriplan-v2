@@ -63,9 +63,9 @@ export default function PlanNewPage() {
     createPlan.mutate(values, {
       onSuccess: (newPlan) => {
         toast.success(`"${newPlan.name}" criado`)
-        // Por enquanto volta pra lista — quando B3 estiver pronto,
-        // mudar pra `/planos/${newPlan.id}/editar`.
-        navigate('/planos', { replace: true })
+        // Redireciona direto pro editor — B3 já implementa a rota.
+        // replace: true pra não acumular /planos/novo no histórico.
+        navigate(`/planos/${newPlan.id}/editar`, { replace: true })
       },
       onError: (err) => {
         toast.error(
