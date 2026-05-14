@@ -178,6 +178,44 @@ function rawMealToDraft(meal: PlanTreeMealRaw): MealDraft {
   }
 }
 
+// ─── Conversor FoodSearchResult → ItemDraftFood ─────────────────────
+
+// Bridge entre o resultado da busca (Fase 3) e o shape que armazenamos
+// nos items do plano. Os campos batem 1:1; isolamos numa função pra
+// concentrar o cast num lugar só e facilitar futuro refactor (ex:
+// adicionar fiber/sodium ao item).
+//
+// `source` no FoodSearchResult é `FoodSource | string` (fallback); aqui
+// armazenamos como string crua porque o item do plano não usa o source
+// pra lógica — só pra display ("TACO", "Produto", "Custom").
+export function foodSearchResultToItemFood(food: {
+  id: string
+  name: string
+  brand: string | null
+  source: string
+  default_serving_g: number
+  serving_label: string | null
+  kcal_per_100g: number
+  protein_per_100g: number
+  carb_per_100g: number
+  fat_per_100g: number
+  recalc_whole_units_only: boolean
+}): ItemDraftFood {
+  return {
+    id: food.id,
+    name: food.name,
+    brand: food.brand,
+    source: food.source,
+    default_serving_g: Number(food.default_serving_g),
+    serving_label: food.serving_label,
+    kcal_per_100g: Number(food.kcal_per_100g),
+    protein_per_100g: Number(food.protein_per_100g),
+    carb_per_100g: Number(food.carb_per_100g),
+    fat_per_100g: Number(food.fat_per_100g),
+    recalc_whole_units_only: food.recalc_whole_units_only,
+  }
+}
+
 // ─── Sort helpers ────────────────────────────────────────────────────
 
 // Comparador estável pra refeições: ordena por target_time crescente

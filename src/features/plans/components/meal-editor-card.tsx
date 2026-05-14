@@ -1,15 +1,28 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import type { FoodSearchResult } from '@/features/foods/lib/types'
 
 import type { MealDraft } from '../lib/draft-types'
+
+import { SlotEditor } from './slot-editor'
 
 interface MealEditorCardProps {
   meal: MealDraft
   onUpdate: (patch: Partial<Pick<MealDraft, 'name' | 'target_time'>>) => void
   onRemove: () => void
+  // B4: handlers pra slots/options/items que sobem até o hook
+  // (usePlanEditor). MealEditorCard só repassa pro SlotEditor.
+  onAddSlot: () => void
+  onUpdateSlotLabel: (slotId: string, label: string | null) => void
+  onRemoveSlot: (slotId: string) => void
+  onAddOption: (slotId: string) => void
+  onRemoveOption: (optionId: string) => void
+  onAddItem: (optionId: string, food: FoodSearchResult) => void
+  onUpdateItemQty: (itemId: string, quantityG: number) => void
+  onRemoveItem: (itemId: string) => void
 }
 
 // Card editável de UMA refeição dentro do plan-edit.
@@ -18,14 +31,12 @@ interface MealEditorCardProps {
 //   ┌─────────────────────────────────────────────┐
 //   │ [▸/▾]  [Nome da refeição]  [⏰ HH:MM]  [🗑] │  ← sempre visível
 //   ├─────────────────────────────────────────────┤
-//   │   Slots e opções chegam no próximo bloco    │  ← se expandido (B3 placeholder)
+//   │   [Slot 1: Proteína]                        │
+//   │     ┌─ Opção 1 ─┐  OU  ┌─ Opção 2 ─┐        │  ← se expandido (B4)
+//   │   [+ Adicionar slot]                        │
 //   └─────────────────────────────────────────────┘
 //
-// O B4 vai popular o corpo expandido com slots → options → items.
-// Por isso o card já é expandível desde o B3 — quando B4 chegar, só
-// substitui o placeholder pelo render de slots.
-//
-// Edits inline:
+// Inline edits:
 //   - Nome: <Input> normal, onChange dispara onUpdate({ name })
 //   - target_time: <input type="time"> nativo (mobile-friendly, sem
 //     dependência de date-picker lib). Vazio = null (sem horário).
@@ -37,6 +48,14 @@ export function MealEditorCard({
   meal,
   onUpdate,
   onRemove,
+  onAddSlot,
+  onUpdateSlotLabel,
+  onRemoveSlot,
+  onAddOption,
+  onRemoveOption,
+  onAddItem,
+  onUpdateItemQty,
+  onRemoveItem,
 }: MealEditorCardProps) {
   // Cada card guarda seu próprio estado de expanded. Não vale a pena
   // promover pro hook do editor — o user só interage com 1 card por
@@ -105,10 +124,39 @@ export function MealEditorCard({
       </div>
 
       {expanded && (
-        <div className="border-t px-3 py-3">
-          <p className="text-sm italic text-muted-foreground">
-            Slots e opções chegam no próximo bloco (B4).
-          </p>
+        <div className="space-y-3 border-t bg-muted/20 p-3">
+          {meal.slots.length === 0 ? (
+            <p className="rounded-md border border-dashed bg-background p-3 text-center text-xs text-muted-foreground">
+              Nenhum slot. Adicione um abaixo (ex: "Proteína", "Carbo").
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {meal.slots.map((slot) => (
+                <SlotEditor
+                  key={slot.id}
+                  slot={slot}
+                  onUpdateLabel={(label) => onUpdateSlotLabel(slot.id, label)}
+                  onRemove={() => onRemoveSlot(slot.id)}
+                  onAddOption={() => onAddOption(slot.id)}
+                  onRemoveOption={onRemoveOption}
+                  onAddItem={onAddItem}
+                  onUpdateItemQty={onUpdateItemQty}
+                  onRemoveItem={onRemoveItem}
+                />
+              ))}
+            </div>
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onAddSlot}
+            className="w-full gap-1"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Adicionar slot
+          </Button>
         </div>
       )}
     </li>

@@ -4,10 +4,14 @@ import { ArrowLeft, Plus, AlertTriangle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import type { FoodSearchResult } from '@/features/foods/lib/types'
 
 import { usePlanEditor } from '../hooks/use-plan-editor'
 import { MealEditorCard } from '../components/meal-editor-card'
-import { compareMealsByTime } from '../lib/draft-types'
+import {
+  compareMealsByTime,
+  foodSearchResultToItemFood,
+} from '../lib/draft-types'
 
 // Editor de plano alimentar.
 //
@@ -53,6 +57,14 @@ export default function PlanEditPage() {
     addMeal,
     removeMeal,
     updateMeal,
+    addSlot,
+    removeSlot,
+    updateSlot,
+    addOption,
+    removeOption,
+    addItem,
+    removeItem,
+    updateItem,
   } = usePlanEditor(planId)
 
   // Ordenação visual aplicada na hora do render. Não muta o draft —
@@ -61,6 +73,16 @@ export default function PlanEditPage() {
     if (!draft) return []
     return [...draft.meals].sort(compareMealsByTime)
   }, [draft])
+
+  // Quando user escolhe um food no FoodPickerSheet (dentro do
+  // OptionEditor), converte FoodSearchResult → ItemDraftFood e
+  // adiciona o item com a quantidade default do food (mesmo
+  // comportamento do AddFoodQuantityStep da Fase 4 quando abre
+  // direto na sub-view de quantidade).
+  const handleAddItem = (optionId: string, food: FoodSearchResult) => {
+    const itemFood = foodSearchResultToItemFood(food)
+    addItem(optionId, itemFood, Math.round(food.default_serving_g))
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
@@ -141,6 +163,18 @@ export default function PlanEditPage() {
                     meal={meal}
                     onUpdate={(patch) => updateMeal(meal.id, patch)}
                     onRemove={() => removeMeal(meal.id)}
+                    onAddSlot={() => addSlot(meal.id)}
+                    onUpdateSlotLabel={(slotId, label) =>
+                      updateSlot(slotId, { label })
+                    }
+                    onRemoveSlot={removeSlot}
+                    onAddOption={addOption}
+                    onRemoveOption={removeOption}
+                    onAddItem={handleAddItem}
+                    onUpdateItemQty={(itemId, qty) =>
+                      updateItem(itemId, { quantity_g: qty })
+                    }
+                    onRemoveItem={removeItem}
                   />
                 ))}
               </ul>
