@@ -11,6 +11,7 @@ interface FoodResultsListProps {
   searchActive: boolean
   onToggleFavorite: (food: FoodSearchResult) => void
   onHide: (food: FoodSearchResult) => void
+  onAdd: (food: FoodSearchResult) => void
   pendingFavoriteFoodId: string | null
   pendingHideFoodId: string | null
 }
@@ -39,6 +40,7 @@ export function FoodResultsList({
   searchActive,
   onToggleFavorite,
   onHide,
+  onAdd,
   pendingFavoriteFoodId,
   pendingHideFoodId,
 }: FoodResultsListProps) {
@@ -87,6 +89,7 @@ export function FoodResultsList({
             food={food}
             onToggleFavorite={onToggleFavorite}
             onHide={onHide}
+            onAdd={onAdd}
             isFavoritePending={pendingFavoriteFoodId === food.id}
             isHidePending={pendingHideFoodId === food.id}
           />

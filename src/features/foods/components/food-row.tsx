@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Star } from 'lucide-react'
+import { Plus, Star } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -14,6 +14,9 @@ interface FoodRowProps {
   onToggleFavorite: (food: FoodSearchResult) => void
   // Disparado ao clicar "Ocultar" no menu •••.
   onHide: (food: FoodSearchResult) => void
+  // Disparado ao clicar "+" pra adicionar ao diário (B8 da Fase 4).
+  // Parent decide qual meal — abre AddFoodSheet com este food.
+  onAdd: (food: FoodSearchResult) => void
   // True enquanto a mutation favorite tá pendente.
   isFavoritePending?: boolean
   // True enquanto a mutation hide tá pendente — desabilita menu.
@@ -64,6 +67,7 @@ export function FoodRow({
   food,
   onToggleFavorite,
   onHide,
+  onAdd,
   isFavoritePending = false,
   isHidePending = false,
 }: FoodRowProps) {
@@ -74,6 +78,14 @@ export function FoodRow({
     e.preventDefault()
     e.stopPropagation()
     onToggleFavorite(food)
+  }
+
+  const handleAddClick = (e: React.MouseEvent) => {
+    // Mesma técnica do handleStarClick — preventDefault no Link wrapper
+    // pra não navegar pra detail; stopPropagation pra não bubblar.
+    e.preventDefault()
+    e.stopPropagation()
+    onAdd(food)
   }
 
   return (
@@ -102,6 +114,14 @@ export function FoodRow({
             >
               {badge.label}
             </span>
+            <button
+              type="button"
+              onClick={handleAddClick}
+              aria-label="Adicionar ao diário"
+              className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={handleStarClick}

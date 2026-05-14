@@ -15,6 +15,10 @@ interface AddFoodSheetProps {
   // com a meal selecionada → pula step 1 e abre direto na quantity.
   // Quando aberto a partir de /foods (B8), vem undefined → step 1 primeiro.
   preSelectedMealId: string | undefined
+  // Quando aberto a partir de /foods (B8), o food já foi escolhido
+  // antes — passa direto pra sub-view de quantidade. Quando vem
+  // undefined (B7 do MealCard), o user escolhe via busca dentro do sheet.
+  preSelectedFood?: FoodSearchResult
   onConfirm: (params: {
     mealId: string
     food: FoodSearchResult
@@ -36,6 +40,7 @@ export function AddFoodSheet({
   onOpenChange,
   meals,
   preSelectedMealId,
+  preSelectedFood,
   onConfirm,
   submitting,
 }: AddFoodSheetProps) {
@@ -116,6 +121,7 @@ export function AddFoodSheet({
           <AddFoodQuantityStep
             mealName={selectedMeal.name}
             isFirstStep={!!preSelectedMealId}
+            preSelectedFood={preSelectedFood}
             onBack={() => {
               if (preSelectedMealId) {
                 // Veio pré-selecionado, voltar = cancelar tudo

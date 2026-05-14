@@ -16,6 +16,11 @@ interface AddFoodQuantityStepProps {
   // "Voltar" deve cancelar tudo. False (B8 de /foods) significa que o
   // voltar leva ao meal-picker.
   isFirstStep: boolean
+  // Quando vem definido (B8 de /foods), o food já foi escolhido fora —
+  // pula o sub-view de busca e abre direto na sub-view de quantidade.
+  // O "Voltar" da sub-view de quantidade nesse caso vai pro meal-picker
+  // (via onBack), em vez de desselecionar o food.
+  preSelectedFood?: FoodSearchResult
   onBack: () => void
   onCancel: () => void
   onConfirm: (food: FoodSearchResult, quantityG: number) => void
@@ -43,6 +48,7 @@ const DEBOUNCE_MS = 250
 export function AddFoodQuantityStep({
   mealName,
   isFirstStep,
+  preSelectedFood,
   onBack,
   onCancel,
   onConfirm,
@@ -51,9 +57,11 @@ export function AddFoodQuantityStep({
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS)
   const [selectedFood, setSelectedFood] = useState<FoodSearchResult | null>(
-    null,
+    preSelectedFood ?? null,
   )
-  const [grams, setGrams] = useState<number | null>(null)
+  const [grams, setGrams] = useState<number | null>(
+    preSelectedFood ? Math.round(preSelectedFood.default_serving_g) : null,
+  )
 
   const { results, loading, fetching, error } = useFoodSearch({
     query: debouncedQuery,
@@ -171,11 +179,19 @@ export function AddFoodQuantityStep({
         <button
           type="button"
           onClick={() => {
-            setSelectedFood(null)
-            setGrams(null)
+            // Se o food veio pré-selecionado (B8), "voltar" significa
+            // voltar pro meal-picker — não dá pra "trocar" alimento aqui.
+            // Se food foi escolhido pela busca (B7), "voltar" desseleciona
+            // o food e volta pra busca.
+            if (preSelectedFood) {
+              onBack()
+            } else {
+              setSelectedFood(null)
+              setGrams(null)
+            }
           }}
           className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          aria-label="Trocar alimento"
+          aria-label={preSelectedFood ? 'Voltar' : 'Trocar alimento'}
         >
           <ArrowLeft className="h-4 w-4" />
         </button>

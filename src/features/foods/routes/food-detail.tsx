@@ -46,7 +46,7 @@ export default function FoodDetailPage() {
   if (error || !food) {
     return (
       <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
-        <Button variant="outline" size="sm" onClick={() => navigate('/foods')}>
+        <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="mr-1 h-4 w-4" />
           Voltar
         </Button>
@@ -105,7 +105,7 @@ export default function FoodDetailPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => navigate('/foods')}
+          onClick={() => navigate(-1)}
         >
           <ArrowLeft className="mr-1 h-4 w-4" />
           Voltar
