@@ -15,8 +15,16 @@ import { planKeys } from '../lib/query-keys'
 //      - Mantém log_meals com entries (não destrói histórico do user)
 //      - Atualiza daily_logs.plan_id
 //
-// Por isso invalidamos tanto a lista de planos (is_active mudou em
-// vários rows) quanto o diário de hoje (refeições podem ter mudado).
+// Por isso invalidamos:
+//   - planKeys.all: cobre a lista E os trees de TODOS os planos em
+//     cache. Crítico porque ativar muda `is_active` de pelo menos 2
+//     rows (o ativado + o ativo anterior, se havia). O editor de
+//     plano (`/planos/:id/editar`) usa `is_active` do tree pra decidir
+//     se mostra o banner "salvar ressincroniza diário" e se chama
+//     activate_meal_plan no save (cenário 5 do B5 — bug do banner
+//     condicional corrigido aqui).
+//   - logKeys.daily(hoje): diário de hoje pode ter sido alterado
+//     (cleanup-and-seed do RPC).
 //
 // Caveat conhecido (P16): o RPC usa CURRENT_DATE (UTC), enquanto o
 // cliente usa getTodayBR (timezone São Paulo). Entre 21h-23:59 BR já
@@ -40,7 +48,7 @@ export function useActivatePlan() {
       if (error) throw error
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: planKeys.list() })
+      queryClient.invalidateQueries({ queryKey: planKeys.all })
       queryClient.invalidateQueries({ queryKey: logKeys.daily(getTodayBR()) })
     },
   })

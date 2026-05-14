@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { FoodSearchResult } from '@/features/foods/lib/types'
 
-import type { MealDraft } from '../lib/draft-types'
+import { type MealDraft, isDraftId } from '../lib/draft-types'
 
 import { SlotEditor } from './slot-editor'
 
@@ -60,7 +60,13 @@ export function MealEditorCard({
   // Cada card guarda seu próprio estado de expanded. Não vale a pena
   // promover pro hook do editor — o user só interage com 1 card por
   // vez, e "remember expanded after refresh" não é requisito.
-  const [expanded, setExpanded] = useState(false)
+  //
+  // Init: refeição recém-criada (id começa com `draft-`) abre já
+  // expandida — economiza 1 click pro user que acabou de adicionar a
+  // refeição e quer colocar slots/items dentro. Refeição vinda do
+  // banco (id real) começa colapsada pra dar visão de lista mais
+  // limpa. useState(initializer) roda só na primeira montagem do card.
+  const [expanded, setExpanded] = useState(() => isDraftId(meal.id))
 
   const handleRemove = () => {
     const ok = window.confirm(

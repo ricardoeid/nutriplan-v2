@@ -304,8 +304,20 @@ export function usePlanEditor(planId: string) {
     [],
   )
 
+  // Reset do draft. Usado após save bem-sucedido (B5): zera o draft pra
+  // null e o useEffect re-hidrata com a query.data fresca (que o
+  // useSavePlan invalidou + refetch). Resultado: editor mostra o estado
+  // atualizado do banco, ids reais nos itens recém-criados.
+  const resetDraft = useCallback(() => {
+    setDraft(null)
+  }, [])
+
   return {
     draft,
+    // Original do banco (resultado da RPC). Caller usa pra computar o
+    // diff no save (B5). Pode ser null durante o loading inicial ou
+    // quando plano não existe.
+    original: query.data ?? null,
     // Distinguir "carregando primeira vez" de "plano não existe":
     //   loading=true → spinner
     //   loading=false + draft===null + data===null → "não encontrado"
@@ -326,5 +338,7 @@ export function usePlanEditor(planId: string) {
     addItem,
     removeItem,
     updateItem,
+    // Reset (após save)
+    resetDraft,
   }
 }
