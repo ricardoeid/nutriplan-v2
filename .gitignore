@@ -28,3 +28,6 @@ dist-ssr
 
 # Supabase CLI local cache
 supabase/.temp/
+
+# Claude Code worktrees (sessões de IA isoladas em branches paralelas)
+.claude/
