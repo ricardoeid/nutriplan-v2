@@ -78,3 +78,59 @@ export function mealTotals(slots: PlanTreeSlotRaw[]): OptionMacros {
     { kcal: 0, p: 0, c: 0, g: 0 },
   )
 }
+
+// ─── Overlay (active option / active totals) ────────────────────────
+//
+// Helpers que consideram plan_day_adjustments — extraídos pra reuso
+// entre /plano cards (ProximaRefeicaoCard, RefeicaoCollapsedCard,
+// MealCommitSheet) e Home (MealCard B4 — Esperado vs Comido).
+//
+// Tipo `ActiveAdjustment` é genérico (subset estrutural). Callers
+// passam Map<string, PlanDayAdjustment> que satisfaz structurally —
+// não há ciclo de import com types/database.
+
+export interface ActiveAdjustment {
+  plan_option_id: string
+  adjusted_quantity_g: number | string
+}
+
+// Retorna a opção "ativa" do slot considerando o adjustment do dia.
+// Sem adjustment → primária (sort_order=0).
+// Com adjustment → option apontada; fallback defensivo na primária se
+// não achar (option deletada do plano).
+export function activeOptionInSlot(
+  slot: PlanTreeSlotRaw,
+  adjustment: ActiveAdjustment | undefined,
+): PlanTreeOptionRaw | undefined {
+  const sorted = [...slot.options].sort((a, b) => a.sort_order - b.sort_order)
+  if (sorted.length === 0) return undefined
+  if (!adjustment) return sorted[0]
+  return sorted.find((o) => o.id === adjustment.plan_option_id) ?? sorted[0]
+}
+
+// Totais de uma refeição usando opções ATIVAS (overlay) + qty do
+// adjustment quando há. Slot sem option ou option sem item contribui
+// zero — defensivo com schemas/dados parciais.
+export function activeMealTotals(
+  slots: PlanTreeSlotRaw[],
+  adjustmentsBySlotId: Map<string, ActiveAdjustment>,
+): OptionMacros {
+  return slots.reduce<OptionMacros>(
+    (acc, slot) => {
+      const adj = adjustmentsBySlotId.get(slot.id)
+      const active = activeOptionInSlot(slot, adj)
+      if (!active) return acc
+      const item = active.items[0]
+      if (!item) return acc
+      const qty = adj ? Number(adj.adjusted_quantity_g) : Number(item.quantity_g)
+      const m = foodMacrosAtQty(item.food, qty)
+      return {
+        kcal: acc.kcal + m.kcal,
+        p: acc.p + m.p,
+        c: acc.c + m.c,
+        g: acc.g + m.g,
+      }
+    },
+    { kcal: 0, p: 0, c: 0, g: 0 },
+  )
+}

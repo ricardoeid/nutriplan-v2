@@ -2089,6 +2089,51 @@ Retorna `new_plan_id`. UI no `PlansPage` chama RPC e navega.
 
 Atacar quando Ricardo pedir ou antes da publicação.
 
+### P24 — Comparison "Esperado vs Comido" pra dias passados (NOVO Fase 6 B4, baixa)
+
+O B4 mostra a 2ª linha "Esperado plano · Comido agora" no MealCard
+SÓ quando `dateISO === today` no Home. Pra navegar pra ontem ou anteontem
+via DateNavigator e ver a mesma comparison, precisa de hook genérico
+que busque, pra qualquer data:
+1. `daily_logs.plan_id` daquela data (snapshot do plano que estava
+   ativo na criação do dia)
+2. `get_plan_tree(plan_id)` daquele plano
+3. `plan_day_adjustments` daquela data
+
+Pra hoje, `useTodaysPlan` cobre. Pra dias passados, refatorar pra
+`useDayPlanComparison(dateISO)` que aceita data arbitrária.
+
+Atacar quando histórico virar caso de uso real (provavelmente após
+calendário de aderência da P25).
+
+### P25 — Calendário de aderência no Perfil (NOVO Fase 6 B4, futuro)
+
+Ideia do Ricardo no B4: tela no `/profile` (ou rota dedicada) com
+calendário mensal mostrando "quão bem o user seguiu o plano" em cada
+dia. Quadradinhos coloridos:
+- Verde = 100% das refeições do dia bateram esperado (todos macros
+  dentro de ±5% do plano)
+- Laranja = 50% (algumas bateram, outras não)
+- Vermelho = 0% (não seguiu, comeu fora, ou nem registrou)
+- Cinza = dia futuro / sem plano ativo / sem dados
+
+**Why:** gamification leve, motiva o user a manter consistência. Visual
+imediato de "como tô indo no mês".
+
+**Implementação esperada:**
+- RPC ou view materializada que computa aderência diária pra range de
+  datas (custosa se for client-side com N daily_logs)
+- Componente calendário (pode ser react-calendar ou implementação custom)
+- Drill-down: click no quadradinho navega pro Home daquele dia
+
+**Pre-requisitos:**
+- P24 (comparison pra histórico) — pra renderizar info da data no
+  drill-down
+- Histórico de macros consolidado por dia (já temos via daily_logs +
+  log_entries snapshots)
+
+Atacar pós-Fase 6 (motor pronto) ou em fase própria de "engajamento".
+
 ### P23 — Ajuste automático ao desmarcar item no MealCommitSheet (NOVO Fase 6 B3, futuro)
 
 No sheet "Registrar esta refeição" (B3), o user pode desmarcar items

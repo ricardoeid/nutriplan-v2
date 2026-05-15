@@ -1,15 +1,17 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { getTodayBR } from '@/lib/dates'
 import type { FoodSearchResult } from '@/features/foods/lib/types'
+import { useTodaysPlan } from '@/features/plans/hooks/use-todays-plan'
+import { activeMealTotals } from '@/features/plans/lib/option-macros'
 
 import { AddFoodSheet } from '../components/add-food-sheet'
 import { DailyProgressCard } from '../components/daily-progress-card'
 import { DateNavigator } from '../components/date-navigator'
-import { MealCard } from '../components/meal-card'
+import { MealCard, type MealMacroTotals } from '../components/meal-card'
 import { NewMealDialog } from '../components/new-meal-dialog'
 import { useAddEntry } from '../hooks/use-add-entry'
 import { useCreateMeal } from '../hooks/use-create-meal'
@@ -43,6 +45,31 @@ function HomePage() {
   const deleteMeal = useDeleteMeal()
   const createMeal = useCreateMeal()
   const addEntry = useAddEntry()
+
+  // Fase 6 B4: comparison "Esperado plano · Comido agora" no MealCard.
+  // Só pra hoje — histórico fica como P24 (precisa de hook genérico
+  // que busque daily_logs.plan_id de cada data). Pra outros dias, o
+  // MealCard renderiza sem 2ª linha (expectedTotals = undefined).
+  const today = getTodayBR()
+  const isToday = dateISO === today
+  const todaysPlan = useTodaysPlan()
+  const expectedByPlanMealId = useMemo(() => {
+    if (!isToday || !todaysPlan.planTree) return new Map<string, MealMacroTotals>()
+    const map = new Map<string, MealMacroTotals>()
+    for (const planMeal of todaysPlan.planTree.meals) {
+      const totals = activeMealTotals(
+        planMeal.slots,
+        todaysPlan.adjustmentsBySlotId,
+      )
+      map.set(planMeal.id, {
+        kcal: totals.kcal,
+        protein: totals.p,
+        carbs: totals.c,
+        fat: totals.g,
+      })
+    }
+    return map
+  }, [isToday, todaysPlan.planTree, todaysPlan.adjustmentsBySlotId])
 
   const handleDeleteEntry = (entryId: string) => {
     deleteEntry.mutate(
@@ -182,6 +209,11 @@ function HomePage() {
                   onAddFood={handleOpenAddFood}
                   deleteEntryPending={deleteEntry.isPending}
                   deleteMealPending={deleteMeal.isPending}
+                  expectedTotals={
+                    meal.plan_meal_id
+                      ? expectedByPlanMealId.get(meal.plan_meal_id)
+                      : undefined
+                  }
                 />
               ))
             )}

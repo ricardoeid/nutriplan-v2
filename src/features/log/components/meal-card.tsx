@@ -3,9 +3,19 @@ import { Plus } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 
 import type { LogMealWithEntries } from '../lib/types'
+import { getMacroTargetState, MacroTargetIcon } from '../lib/macro-target'
 
 import { EntryRow } from './entry-row'
 import { LogRowMenu } from './log-row-menu'
+
+// Totais de macros pra uma refeição (esperado do plano OU consumido das
+// entries). Mesmo shape pros 2 — facilita comparação no render.
+export interface MealMacroTotals {
+  kcal: number
+  protein: number
+  carbs: number
+  fat: number
+}
 
 interface MealCardProps {
   meal: LogMealWithEntries
@@ -14,6 +24,11 @@ interface MealCardProps {
   onAddFood: (mealId: string) => void
   deleteEntryPending: boolean
   deleteMealPending: boolean
+  // Fase 6 B4: quando passado E meal.plan_meal_id != null, renderiza a
+  // 2ª linha "Esperado plano · Comido agora" com ícones target por
+  // macro. Pra dias passados, parent pode passar undefined (P24 futura)
+  // — card volta a render só o header sem comparison.
+  expectedTotals?: MealMacroTotals
 }
 
 // Card de uma refeição do diário. Match layout V1:
@@ -39,12 +54,11 @@ interface MealCardProps {
 // (plan_meal_id != null). Em Fase 4 nunca acontece — RPC seedou os 6
 // defaults sem plan_meal_id.
 //
-// "Adicionar alimento" inline (não FAB) match V1. Em B5 o botão dispara
-// toast "em breve"; B7 wires com AddFoodFlow.
+// "Adicionar alimento" inline (não FAB) match V1.
 //
-// TODO Fase 5: quando meal.plan_meal_id != null, renderizar comparison
+// Fase 6 B4: quando expectedTotals + meal.plan_meal_id != null, renderiza
 // "Esperado plano: X kcal · YP · ZC · WG" + "Comido agora: ..." com
-// ícones target verdes/âmbar/vermelhos por macro.
+// ícones target (verde/âmbar/vermelho/circle) por macro (ver lib/macro-target).
 export function MealCard({
   meal,
   onDeleteEntry,
@@ -52,7 +66,15 @@ export function MealCard({
   onAddFood,
   deleteEntryPending,
   deleteMealPending,
+  expectedTotals,
 }: MealCardProps) {
+  // Comparison só faz sentido pra refeições do plano. Sem plan_meal_id
+  // (refeições manuais via "Adicionar refeição"), pula a 2ª linha.
+  const showComparison = !!meal.plan_meal_id && !!expectedTotals
+  const consumedTotals = showComparison
+    ? computeConsumedTotals(meal.entries)
+    : null
+
   return (
     <Card>
       <CardContent className="px-0 pt-4 pb-0">
@@ -71,6 +93,62 @@ export function MealCard({
             disabled={deleteMealPending}
           />
         </div>
+
+        {showComparison && expectedTotals && consumedTotals && (
+          <div className="space-y-0.5 px-4 pb-2 text-xs tabular-nums">
+            <p className="text-muted-foreground">
+              <span className="font-medium">Esperado plano:</span>{' '}
+              {Math.round(expectedTotals.kcal)} kcal ·{' '}
+              {expectedTotals.protein.toFixed(0)}P ·{' '}
+              {expectedTotals.carbs.toFixed(0)}C ·{' '}
+              {expectedTotals.fat.toFixed(0)}G
+            </p>
+            <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-muted-foreground">
+              <span className="font-medium text-foreground">
+                Comido agora:
+              </span>
+              <span className="inline-flex items-center gap-0.5">
+                {Math.round(consumedTotals.kcal)} kcal
+                <MacroTargetIcon
+                  state={getMacroTargetState(
+                    expectedTotals.kcal,
+                    consumedTotals.kcal,
+                  )}
+                />
+              </span>
+              <span>·</span>
+              <span className="inline-flex items-center gap-0.5">
+                {consumedTotals.protein.toFixed(0)}P
+                <MacroTargetIcon
+                  state={getMacroTargetState(
+                    expectedTotals.protein,
+                    consumedTotals.protein,
+                  )}
+                />
+              </span>
+              <span>·</span>
+              <span className="inline-flex items-center gap-0.5">
+                {consumedTotals.carbs.toFixed(0)}C
+                <MacroTargetIcon
+                  state={getMacroTargetState(
+                    expectedTotals.carbs,
+                    consumedTotals.carbs,
+                  )}
+                />
+              </span>
+              <span>·</span>
+              <span className="inline-flex items-center gap-0.5">
+                {consumedTotals.fat.toFixed(0)}G
+                <MacroTargetIcon
+                  state={getMacroTargetState(
+                    expectedTotals.fat,
+                    consumedTotals.fat,
+                  )}
+                />
+              </span>
+            </p>
+          </div>
+        )}
 
         {meal.entries.length === 0 ? (
           <p className="px-4 py-3 text-sm text-muted-foreground border-t border-border">
@@ -100,5 +178,23 @@ export function MealCard({
         </button>
       </CardContent>
     </Card>
+  )
+}
+
+// Soma macros dos entries da refeição. Snapshot pattern (§4 STATUS):
+// entry.kcal/protein/carbs/fat já estão computados — não recalcular do
+// food.per_100g. Casts via Number defensivo (Supabase numeric → string
+// às vezes).
+function computeConsumedTotals(
+  entries: LogMealWithEntries['entries'],
+): MealMacroTotals {
+  return entries.reduce<MealMacroTotals>(
+    (acc, entry) => ({
+      kcal: acc.kcal + Number(entry.kcal),
+      protein: acc.protein + Number(entry.protein),
+      carbs: acc.carbs + Number(entry.carbs),
+      fat: acc.fat + Number(entry.fat),
+    }),
+    { kcal: 0, protein: 0, carbs: 0, fat: 0 },
   )
 }
