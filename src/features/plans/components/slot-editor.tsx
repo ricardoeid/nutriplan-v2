@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -75,7 +75,7 @@ export function SlotEditor({
   const canRemoveAlternativa = sortedOptions.length > 1
 
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div className="rounded-lg border bg-muted/40 p-3">
       <div className="mb-3 flex items-center gap-2">
         <Input
           value={slot.label ?? ''}
@@ -103,20 +103,33 @@ export function SlotEditor({
         // Edge case: plano antigo migrado pode ter slot sem options.
         // Mostra mensagem amigável + permite adicionar alternativa pra
         // recuperar.
-        <p className="mb-2 rounded-md border border-dashed bg-muted/30 p-2 text-center text-xs italic text-muted-foreground">
+        <p className="mb-2 rounded-md border border-dashed bg-background p-2 text-center text-xs italic text-muted-foreground">
           Sem alternativas ainda. Adicione uma abaixo.
         </p>
       ) : (
+        // Lista de alternativas separadas por "ou" — reforça que são
+        // exclusivas dentro do slot (idioma de plano de nutricionista
+        // no papel). Fragment necessário pra renderizar o separador
+        // entre items sem quebrar a semântica de <li>.
         <ul className="mb-2 space-y-1.5">
           {sortedOptions.map((option, idx) => (
-            <AlternativeRow
-              key={option.id}
-              option={option}
-              isPrimary={idx === 0}
-              canRemove={canRemoveAlternativa}
-              onUpdateQty={(qty) => onUpdateAlternativaQty(option.id, qty)}
-              onRemove={() => onRemoveAlternativa(option.id)}
-            />
+            <Fragment key={option.id}>
+              {idx > 0 && (
+                <li
+                  aria-hidden
+                  className="py-0.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                >
+                  ou
+                </li>
+              )}
+              <AlternativeRow
+                option={option}
+                isPrimary={idx === 0}
+                canRemove={canRemoveAlternativa}
+                onUpdateQty={(qty) => onUpdateAlternativaQty(option.id, qty)}
+                onRemove={() => onRemoveAlternativa(option.id)}
+              />
+            </Fragment>
           ))}
         </ul>
       )}
