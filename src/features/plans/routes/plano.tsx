@@ -8,7 +8,7 @@ import { getNowMinutesBR } from '@/lib/dates'
 import { useTodaysPlan } from '../hooks/use-todays-plan'
 import { ProximaRefeicaoCard } from '../components/proxima-refeicao-card'
 import { RefeicaoCollapsedCard } from '../components/refeicao-collapsed-card'
-import { findNextMealId, getMealStatus } from '../lib/meal-status'
+import { findNextMealId, timeToMinutes } from '../lib/meal-status'
 
 // Rota /plano — visão do plano ativo aplicado a hoje.
 //
@@ -136,26 +136,51 @@ export default function PlanoPage() {
               .
             </p>
           ) : (
+            // Layout em 3 zonas (B1):
+            //   1. Destacada (PRÓXIMA REFEIÇÃO) sempre no topo
+            //   2. Não-comidas em ordem cronológica (○)
+            //   3. Comidas (✓) no fim em ordem cronológica
+            // sortedMeals já está em target_time ASC; aqui só separamos em
+            // 3 buckets mantendo a ordem interna.
             <ul className="space-y-3">
               {sortedMeals.map((meal) => {
-                const entries = entriesByPlanMealId.get(meal.id) ?? []
-                const status = getMealStatus({
-                  meal,
-                  isNext: meal.id === nextMealId,
-                  hasEntries: entries.length > 0,
-                  nowMinutes,
-                })
+                if (meal.id !== nextMealId) return null
                 return (
                   <li key={meal.id}>
-                    {status === 'next' ? (
-                      <ProximaRefeicaoCard meal={meal} />
-                    ) : (
-                      <RefeicaoCollapsedCard
-                        meal={meal}
-                        status={status}
-                        entries={entries}
-                      />
-                    )}
+                    <ProximaRefeicaoCard meal={meal} />
+                  </li>
+                )
+              })}
+
+              {sortedMeals.map((meal) => {
+                if (meal.id === nextMealId) return null
+                const entries = entriesByPlanMealId.get(meal.id) ?? []
+                if (entries.length > 0) return null
+                const mm = timeToMinutes(meal.target_time)
+                const status: 'past-empty' | 'future' =
+                  mm !== null && nowMinutes > mm ? 'past-empty' : 'future'
+                return (
+                  <li key={meal.id}>
+                    <RefeicaoCollapsedCard
+                      meal={meal}
+                      status={status}
+                      entries={[]}
+                    />
+                  </li>
+                )
+              })}
+
+              {sortedMeals.map((meal) => {
+                if (meal.id === nextMealId) return null
+                const entries = entriesByPlanMealId.get(meal.id) ?? []
+                if (entries.length === 0) return null
+                return (
+                  <li key={meal.id}>
+                    <RefeicaoCollapsedCard
+                      meal={meal}
+                      status="past-eaten"
+                      entries={entries}
+                    />
                   </li>
                 )
               })}
