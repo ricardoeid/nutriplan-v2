@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ClipboardList, Settings } from 'lucide-react'
 import { toast } from 'sonner'
@@ -109,7 +109,7 @@ export default function PlanoPage() {
   // tab já recalcula. Se virar problema (UI grudada em "próxima" errada
   // por horas), B1.5 adiciona setInterval de 60s.
   const nowMinutes = useMemo(() => getNowMinutesBR(), [])
-  const nextMealId = useMemo(
+  const autoNextMealId = useMemo(
     () =>
       findNextMealId(
         sortedMeals.map((m) => ({
@@ -122,6 +122,35 @@ export default function PlanoPage() {
       ),
     [sortedMeals, entriesByPlanMealId, nowMinutes],
   )
+
+  // Override manual: user clicou "Abrir refeição" em algum card
+  // colapsado pra ver/registrar/etc. Persiste só client-side — refresh
+  // volta pro automático. (Decisão Ricardo 2026-05-15: simples, sem
+  // controle de "voltar pro auto".)
+  const [forcedNextMealId, setForcedNextMealId] = useState<string | null>(
+    null,
+  )
+  const nextMealId = forcedNextMealId ?? autoNextMealId
+
+  // Set<plan_meal_id> de refeições que têm pelo menos 1 adjustment ativo
+  // hoje — usado pra exibir badge "Ajustado hoje" tanto na destacada
+  // quanto nas colapsadas. Construído via map auxiliar slot_id → meal_id
+  // (que vem do planTree) cruzado com os adjustments do dia.
+  const mealsWithAdjustments = useMemo(() => {
+    if (!planTree) return new Set<string>()
+    const mealIdBySlotId = new Map<string, string>()
+    for (const meal of planTree.meals) {
+      for (const slot of meal.slots) {
+        mealIdBySlotId.set(slot.id, meal.id)
+      }
+    }
+    const set = new Set<string>()
+    for (const adj of adjustmentsBySlotId.values()) {
+      const mealId = mealIdBySlotId.get(adj.plan_slot_id)
+      if (mealId) set.add(mealId)
+    }
+    return set
+  }, [planTree, adjustmentsBySlotId])
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
@@ -209,6 +238,7 @@ export default function PlanoPage() {
                       logMealId={logMealIdByPlanMealId.get(meal.id) ?? null}
                       onRegisterRefeicao={handleRegisterRefeicao}
                       registering={addEntries.isPending}
+                      hasAdjustments={mealsWithAdjustments.has(meal.id)}
                     />
                   </li>
                 )
@@ -228,6 +258,8 @@ export default function PlanoPage() {
                       status={status}
                       entries={[]}
                       adjustmentsBySlotId={adjustmentsBySlotId}
+                      hasAdjustments={mealsWithAdjustments.has(meal.id)}
+                      onAbrirRefeicao={() => setForcedNextMealId(meal.id)}
                     />
                   </li>
                 )
@@ -244,6 +276,8 @@ export default function PlanoPage() {
                       status="past-eaten"
                       entries={entries}
                       adjustmentsBySlotId={adjustmentsBySlotId}
+                      hasAdjustments={mealsWithAdjustments.has(meal.id)}
+                      onAbrirRefeicao={() => setForcedNextMealId(meal.id)}
                     />
                   </li>
                 )

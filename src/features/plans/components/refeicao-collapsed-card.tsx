@@ -7,6 +7,7 @@ import {
   Clock,
 } from 'lucide-react'
 
+import { Button } from '@/components/ui/button'
 import type { LogEntryWithFood } from '@/features/log/lib/types'
 import type { Database } from '@/types/database'
 
@@ -31,6 +32,14 @@ interface RefeicaoCollapsedCardProps {
   // cada slot, não a primária do plano). Apenas display — refeições
   // não-destacadas não permitem trocar alternativa (B2 decisão).
   adjustmentsBySlotId: Map<string, PlanDayAdjustment>
+  // Fase 6 B3.5: True se esta refeição tem 1+ adjustment ativo hoje.
+  // Mostra badge sutil "Ajustado hoje" no header (igual V1).
+  hasAdjustments: boolean
+  // Fase 6 B3.5: callback opcional pra "Abrir refeição" — força este
+  // card a virar o destacado (PRÓXIMA REFEIÇÃO) no parent via
+  // forcedNextMealId. Use case: registrar refeição esquecida ou rever
+  // detalhes. Pra voltar pro automático, refresh.
+  onAbrirRefeicao?: () => void
 }
 
 // Card colapsado de uma refeição que NÃO é a próxima (Fase 6 B1).
@@ -50,6 +59,8 @@ export function RefeicaoCollapsedCard({
   status,
   entries,
   adjustmentsBySlotId,
+  hasAdjustments,
+  onAbrirRefeicao,
 }: RefeicaoCollapsedCardProps) {
   const [expanded, setExpanded] = useState(false)
   const time = pgTimeToHHMM(meal.target_time)
@@ -73,9 +84,10 @@ export function RefeicaoCollapsedCard({
             aria-hidden
           />
         )}
-        <span className="flex-1 truncate text-sm font-medium">
-          {meal.name}
-        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-sm font-medium">{meal.name}</span>
+          {hasAdjustments && <AjustadoBadge />}
+        </div>
         {time && (
           <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground tabular-nums">
             <Clock className="h-3.5 w-3.5" />
@@ -96,7 +108,7 @@ export function RefeicaoCollapsedCard({
       </button>
 
       {expanded && (
-        <div className="border-t bg-background p-3">
+        <div className="space-y-3 border-t bg-background p-3">
           {status === 'past-eaten' ? (
             <EntriesList entries={entries} />
           ) : (
@@ -105,9 +117,30 @@ export function RefeicaoCollapsedCard({
               adjustmentsBySlotId={adjustmentsBySlotId}
             />
           )}
+          {onAbrirRefeicao && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={onAbrirRefeicao}
+            >
+              Abrir refeição
+            </Button>
+          )}
         </div>
       )}
     </article>
+  )
+}
+
+// Badge sutil "Ajustado hoje" — sinaliza que esta refeição tem pelo
+// menos 1 adjustment ativo no plan_day_adjustments. Visualmente igual
+// ao V1 (tag pequena, fundo neutro).
+function AjustadoBadge() {
+  return (
+    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      Ajustado hoje
+    </span>
   )
 }
 

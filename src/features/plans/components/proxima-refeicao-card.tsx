@@ -39,6 +39,9 @@ interface ProximaRefeicaoCardProps {
   // Parent (PlanoPage) lança em erro pra manter sheet aberto.
   onRegisterRefeicao: (entries: AddEntryItem[]) => Promise<void>
   registering: boolean
+  // Fase 6 B3.5: True se esta refeição tem 1+ adjustment ativo hoje.
+  // Mostra badge "Ajustado hoje" sutil no header.
+  hasAdjustments: boolean
 }
 
 // Card "PRÓXIMA REFEIÇÃO" destacado (Fase 6 B1 + B2).
@@ -76,6 +79,7 @@ export function ProximaRefeicaoCard({
   logMealId,
   onRegisterRefeicao,
   registering,
+  hasAdjustments,
 }: ProximaRefeicaoCardProps) {
   const time = pgTimeToHHMM(meal.target_time)
   const [commitSheetOpen, setCommitSheetOpen] = useState(false)
@@ -117,7 +121,14 @@ export function ProximaRefeicaoCard({
           Próxima refeição
         </p>
         <div className="mt-1 flex items-center justify-between gap-2">
-          <h2 className="truncate text-xl font-semibold">{meal.name}</h2>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <h2 className="truncate text-xl font-semibold">{meal.name}</h2>
+            {hasAdjustments && (
+              <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Ajustado hoje
+              </span>
+            )}
+          </div>
           {time && (
             <span className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground tabular-nums">
               <Clock className="h-3.5 w-3.5" />
