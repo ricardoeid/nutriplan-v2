@@ -23,22 +23,25 @@ export function timeToMinutes(time: string | null): number | null {
 
 // Acha a refeição a destacar como "próxima" no /plano.
 //
-// Regra (revisada no setup do B1, 2026-05-14):
+// Regra (revisada no B1 da Fase 6, 2026-05-14):
 // SEMPRE há uma refeição destacada quando há pelo menos UMA não-comida.
 // Só quando TODAS estão ✓ (têm entries) é que não há destaque.
 //
-// Priorização entre as não-comidas:
-//   1. Primeira NÃO-COMIDA com target_time >= now (caso normal — usuário
-//      ainda está dentro da janela esperada).
-//   2. Se nenhuma satisfaz #1 (todas as não-comidas já estão atrasadas):
-//      primeira NÃO-COMIDA em ordem cronológica. Ex: passou da hora do
-//      café e do almoço, ambos sem entries → café fica como destaque
-//      (mais antigo não-resolvido).
-//   3. Se todas as refeições estão comidas: retorna null.
+// Critério: dentre as NÃO-COMIDAS, escolhe a com MENOR DISTÂNCIA
+// ABSOLUTA ao horário atual. Não importa se já passou ou ainda vai
+// chegar — a mais próxima em valor absoluto vence.
 //
-// Refeições sem target_time competem pelo destaque na ordem de
-// sort_order, mas perdem pra qualquer não-comida com target_time válido
-// no critério #1.
+// Exemplos (com refeições 07:00 / 12:00 / 19:00, todas não-comidas):
+//   - 22:02 BR → distâncias 902 / 602 / 182min → destaca 19:00
+//   - 14:00 BR → distâncias 420 / 120 / 300min → destaca 12:00
+//   - 06:30 BR → distâncias 30 / 330 / 750min → destaca 07:00
+//
+// Desempate (distâncias iguais): target_time mais cedo. Ex: às 13:00
+// com refeições 10:00 e 16:00 (ambas 3h de distância) → destaca 10:00.
+//
+// Refeições SEM target_time não competem pelo destaque; só viram
+// destacadas se nenhuma não-comida tiver horário (fallback por
+// sort_order).
 export function findNextMealId(
   meals: Array<{
     id: string
@@ -51,27 +54,27 @@ export function findNextMealId(
   const unfinished = meals.filter((m) => !m.hasEntries)
   if (unfinished.length === 0) return null
 
-  // Ordena por target_time ASC; null no fim; desempate por sort_order.
-  const sorted = [...unfinished].sort((a, b) => {
-    const am = timeToMinutes(a.target_time)
-    const bm = timeToMinutes(b.target_time)
-    if (am === null && bm === null) return a.sort_order - b.sort_order
-    if (am === null) return 1
-    if (bm === null) return -1
-    if (am === bm) return a.sort_order - b.sort_order
-    return am - bm
-  })
-
-  // Critério #1: primeira não-comida com target_time >= now.
-  const upcoming = sorted.find((m) => {
+  let best: { id: string; distance: number; minutes: number } | null = null
+  for (const m of unfinished) {
     const mm = timeToMinutes(m.target_time)
-    return mm !== null && mm >= nowMinutes
-  })
-  if (upcoming) return upcoming.id
+    if (mm === null) continue
+    const distance = Math.abs(mm - nowMinutes)
+    if (
+      best === null ||
+      distance < best.distance ||
+      (distance === best.distance && mm < best.minutes)
+    ) {
+      best = { id: m.id, distance, minutes: mm }
+    }
+  }
+  if (best !== null) return best.id
 
-  // Critério #2: primeira não-comida (atrasada mais antiga, ou sem
-  // horário em ordem de sort_order).
-  return sorted[0].id
+  // Fallback: nenhuma não-comida tem target_time. Pega a primeira em
+  // ordem de sort_order.
+  const sortedByOrder = [...unfinished].sort(
+    (a, b) => a.sort_order - b.sort_order,
+  )
+  return sortedByOrder[0].id
 }
 
 interface GetMealStatusInput {
