@@ -58,8 +58,17 @@ export default function PlanoPage() {
   // por horas), B1.5 adiciona setInterval de 60s.
   const nowMinutes = useMemo(() => getNowMinutesBR(), [])
   const nextMealId = useMemo(
-    () => findNextMealId(sortedMeals, nowMinutes),
-    [sortedMeals, nowMinutes],
+    () =>
+      findNextMealId(
+        sortedMeals.map((m) => ({
+          id: m.id,
+          target_time: m.target_time,
+          sort_order: m.sort_order,
+          hasEntries: (entriesByPlanMealId.get(m.id) ?? []).length > 0,
+        })),
+        nowMinutes,
+      ),
+    [sortedMeals, entriesByPlanMealId, nowMinutes],
   )
 
   return (
