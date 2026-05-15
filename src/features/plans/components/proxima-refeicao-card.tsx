@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Clock, Shuffle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import type { Database } from '@/types/database'
 
 import {
   type PlanTreeMealRaw,
@@ -9,33 +10,54 @@ import {
   type PlanTreeSlotRaw,
   pgTimeToHHMM,
 } from '../lib/draft-types'
-import { mealTotals, optionMacros } from '../lib/option-macros'
+import { foodMacrosAtQty } from '../lib/option-macros'
+import type { SetAdjustmentInput } from '../hooks/use-day-adjustments'
+
+type PlanDayAdjustment =
+  Database['public']['Tables']['plan_day_adjustments']['Row']
 
 interface ProximaRefeicaoCardProps {
   meal: PlanTreeMealRaw
+  planId: string
+  todayISO: string
+  adjustmentsBySlotId: Map<string, PlanDayAdjustment>
+  onChangeAlternativa: (input: SetAdjustmentInput) => void
+  onResetAlternativa: (slotId: string) => void
 }
 
-// Card "PRÓXIMA REFEIÇÃO" destacado (Fase 6 B1). Layout-alvo: print V1
-// enviado pelo Ricardo no setup da Fase 6 (ver
-// memory/project_v1_visual_reference.md indiretamente — mockup específico
-// do /plano).
+// Card "PRÓXIMA REFEIÇÃO" destacado (Fase 6 B1 + B2).
 //
-// Estados visuais:
-//   - Fundo do header levemente destacado (bg-muted/40) com label
-//     "PRÓXIMA REFEIÇÃO" em smallcaps.
-//   - Lista de slots dentro de fundo branco (bg-background).
-//   - Botões "Registrar esta refeição" (primary) e "Quero comer outra
-//     coisa" (outline) no rodapé.
+// B1: layout do card com label "PRÓXIMA REFEIÇÃO", header com totais,
+// lista de slots com "> Ver N alternativas" expansível.
 //
-// Out of scope (próximos blocos ligam):
-//   - "Registrar esta refeição" funcional → B3 (MealCommitSheet básico).
-//   - "Quero comer outra coisa" funcional → B2 (sheet de alternativas
-//     dentro do mesmo slot) ou B6 (escolher food novo + engine).
-//   - "Ver N alternativas" como sheet de troca → B2.
+// B2: alternativas viram CLICÁVEIS. Click numa alternativa não-principal
+// chama onChangeAlternativa (insere/atualiza plan_day_adjustments).
+// Click na alternativa marcada PRINCIPAL (que migrou pra expandida)
+// chama onResetAlternativa (deleta o adjustment, volta pro estado natural).
 //
-// Botões ficam DISABLED + title="Em breve" pra deixar UI completa sem
-// criar caminhos quebrados.
-export function ProximaRefeicaoCard({ meal }: ProximaRefeicaoCardProps) {
+// Regras visuais:
+//   - Linha grande do slot = opção ATIVA do dia (overlay com adjustment;
+//     se sem adjustment, sort_order=0 do plano).
+//   - Lista expandida = todas as outras opções (= não a ativa).
+//   - Badge "PRINCIPAL" aparece SÓ quando a sort_order=0 está na
+//     expandida — ou seja, quando há adjustment ativo. Estado natural
+//     (sort_order=0 na linha grande) não tem badge. Decisão de produto
+//     (Ricardo, 2026-05-15): badge só sinaliza "migrou", não "é o
+//     principal sempre".
+//   - Macros do header e do slot refletem dinamicamente a ativa.
+//
+// Out of scope (próximos blocos):
+//   - "Registrar esta refeição" funcional → B3.
+//   - "Quero comer outra coisa" funcional → B5 + B6 (engine + sheets).
+//   - Estes 2 botões ficam DISABLED com title="Em breve".
+export function ProximaRefeicaoCard({
+  meal,
+  planId,
+  todayISO,
+  adjustmentsBySlotId,
+  onChangeAlternativa,
+  onResetAlternativa,
+}: ProximaRefeicaoCardProps) {
   const time = pgTimeToHHMM(meal.target_time)
 
   const sortedSlots = useMemo(
@@ -43,7 +65,30 @@ export function ProximaRefeicaoCard({ meal }: ProximaRefeicaoCardProps) {
     [meal.slots],
   )
 
-  const totals = useMemo(() => mealTotals(sortedSlots), [sortedSlots])
+  // Totais da refeição = soma das opções ATIVAS de cada slot (com qty
+  // do adjustment se há, senão da option cadastrada).
+  const totals = useMemo(() => {
+    return sortedSlots.reduce(
+      (acc, slot) => {
+        const adj = adjustmentsBySlotId.get(slot.id)
+        const active = activeOption(slot, adj)
+        if (!active) return acc
+        const item = active.items[0]
+        if (!item) return acc
+        const qty = adj
+          ? Number(adj.adjusted_quantity_g)
+          : Number(item.quantity_g)
+        const m = foodMacrosAtQty(item.food, qty)
+        return {
+          kcal: acc.kcal + m.kcal,
+          p: acc.p + m.p,
+          c: acc.c + m.c,
+          g: acc.g + m.g,
+        }
+      },
+      { kcal: 0, p: 0, c: 0, g: 0 },
+    )
+  }, [sortedSlots, adjustmentsBySlotId])
 
   return (
     <article className="overflow-hidden rounded-xl border bg-card">
@@ -76,7 +121,23 @@ export function ProximaRefeicaoCard({ meal }: ProximaRefeicaoCardProps) {
         <ul className="divide-y border-t bg-background">
           {sortedSlots.map((slot, idx) => (
             <li key={slot.id} className="p-3">
-              <SlotView slot={slot} fallbackLabel={`ITEM ${idx + 1}`} />
+              <SlotView
+                slot={slot}
+                fallbackLabel={`ITEM ${idx + 1}`}
+                adjustment={adjustmentsBySlotId.get(slot.id)}
+                onPickAlternative={(option) =>
+                  onChangeAlternativa({
+                    dateISO: todayISO,
+                    plan_id: planId,
+                    plan_meal_id: meal.id,
+                    plan_slot_id: slot.id,
+                    plan_option_id: option.id,
+                    option_item_id: option.items[0]!.id,
+                    adjusted_quantity_g: Number(option.items[0]!.quantity_g),
+                  })
+                }
+                onResetToPrincipal={() => onResetAlternativa(slot.id)}
+              />
             </li>
           ))}
         </ul>
@@ -106,19 +167,37 @@ export function ProximaRefeicaoCard({ meal }: ProximaRefeicaoCardProps) {
   )
 }
 
+// ─── Helpers ────────────────────────────────────────────────────────
+
+// Retorna a "ativa" do slot considerando o adjustment do dia.
+// Sem adjustment → sort_order=0 (principal do plano).
+// Com adjustment → option apontada pelo adjustment; se não achar (caso
+// edge — option deletada do plano), cai pro sort_order=0 como fallback
+// defensivo.
+function activeOption(
+  slot: PlanTreeSlotRaw,
+  adjustment: PlanDayAdjustment | undefined,
+): PlanTreeOptionRaw | undefined {
+  const sorted = [...slot.options].sort((a, b) => a.sort_order - b.sort_order)
+  if (sorted.length === 0) return undefined
+  if (!adjustment) return sorted[0]
+  return sorted.find((o) => o.id === adjustment.plan_option_id) ?? sorted[0]
+}
+
 // ─── SlotView ───────────────────────────────────────────────────────
-//
-// Cópia adaptada do SlotView original de plan-meal-readonly.tsx (Fase 5).
-// Mantemos lógica idêntica de "Ver N alternativas" expansível. Quando B2
-// implementar "trocar alternativa", esse bloco vira sheet — mas o B1
-// só renderiza leitura.
 
 function SlotView({
   slot,
   fallbackLabel,
+  adjustment,
+  onPickAlternative,
+  onResetToPrincipal,
 }: {
   slot: PlanTreeSlotRaw
   fallbackLabel: string
+  adjustment: PlanDayAdjustment | undefined
+  onPickAlternative: (option: PlanTreeOptionRaw) => void
+  onResetToPrincipal: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -126,10 +205,10 @@ function SlotView({
     () => [...slot.options].sort((a, b) => a.sort_order - b.sort_order),
     [slot.options],
   )
-  const primary = sortedOptions[0]
-  const alternatives = sortedOptions.slice(1)
+  const principal = sortedOptions[0]
+  const active = activeOption(slot, adjustment)
 
-  if (!primary) {
+  if (!principal || !active) {
     return (
       <div>
         <SlotHeader label={slot.label ?? fallbackLabel} kcal={null} />
@@ -140,9 +219,19 @@ function SlotView({
     )
   }
 
-  const primaryFood = primary.items[0]?.food
-  const primaryQty = Number(primary.items[0]?.quantity_g ?? 0)
-  const primaryKcal = optionMacros(primary).kcal
+  // Alternativas = todas as options exceto a ativa.
+  const alternatives = sortedOptions.filter((o) => o.id !== active.id)
+
+  // Macros e qty da ativa — usa qty do adjustment se há, senão da
+  // option cadastrada.
+  const activeItem = active.items[0]
+  const activeQty = adjustment
+    ? Number(adjustment.adjusted_quantity_g)
+    : Number(activeItem?.quantity_g ?? 0)
+  const activeMacros = activeItem
+    ? foodMacrosAtQty(activeItem.food, activeQty)
+    : null
+
   const altCount = alternatives.length
   const altLabel =
     altCount === 1 ? '1 alternativa' : `${altCount} alternativas`
@@ -151,19 +240,19 @@ function SlotView({
     <div>
       <SlotHeader
         label={slot.label ?? fallbackLabel}
-        kcal={primaryKcal}
+        kcal={activeMacros ? activeMacros.kcal : null}
       />
 
-      {primaryFood ? (
+      {activeItem ? (
         <p className="text-sm font-medium">
-          {primaryFood.name}
+          {activeItem.food.name}
           <span className="ml-1 font-normal text-muted-foreground tabular-nums">
-            — {primaryQty}g
+            — {activeQty}g
           </span>
         </p>
       ) : (
         <p className="text-xs italic text-muted-foreground">
-          Alternativa principal sem alimento.
+          Alternativa ativa sem alimento.
         </p>
       )}
 
@@ -185,11 +274,24 @@ function SlotView({
 
           {expanded && (
             <ul className="mt-2 space-y-2 border-l pl-3">
-              {alternatives.map((alt) => (
-                <li key={alt.id}>
-                  <AlternativeView option={alt} />
-                </li>
-              ))}
+              {alternatives.map((alt) => {
+                const isPrincipal = alt.id === principal.id
+                return (
+                  <li key={alt.id}>
+                    <AlternativeView
+                      option={alt}
+                      isPrincipal={isPrincipal}
+                      onClick={() => {
+                        if (isPrincipal) {
+                          onResetToPrincipal()
+                        } else {
+                          onPickAlternative(alt)
+                        }
+                      }}
+                    />
+                  </li>
+                )
+              })}
             </ul>
           )}
         </>
@@ -219,7 +321,15 @@ function SlotHeader({
   )
 }
 
-function AlternativeView({ option }: { option: PlanTreeOptionRaw }) {
+function AlternativeView({
+  option,
+  isPrincipal,
+  onClick,
+}: {
+  option: PlanTreeOptionRaw
+  isPrincipal: boolean
+  onClick: () => void
+}) {
   const item = option.items[0]
   if (!item) {
     return (
@@ -229,18 +339,29 @@ function AlternativeView({ option }: { option: PlanTreeOptionRaw }) {
     )
   }
   const qty = Number(item.quantity_g)
-  const kcal = optionMacros(option).kcal
+  const macros = foodMacrosAtQty(item.food, qty)
   return (
-    <div>
-      <p className="text-sm">
-        {item.food.name}
-        <span className="ml-1 text-muted-foreground tabular-nums">
-          — {qty}g
-        </span>
-      </p>
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-md p-1.5 text-left transition-colors hover:bg-muted/60"
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        {isPrincipal && (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            Principal
+          </span>
+        )}
+        <p className="text-sm">
+          {item.food.name}
+          <span className="ml-1 text-muted-foreground tabular-nums">
+            — {qty}g
+          </span>
+        </p>
+      </div>
       <p className="text-xs tabular-nums text-muted-foreground">
-        {Math.round(kcal)} kcal
+        {Math.round(macros.kcal)} kcal
       </p>
-    </div>
+    </button>
   )
 }

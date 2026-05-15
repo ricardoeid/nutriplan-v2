@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/button'
 import { getNowMinutesBR } from '@/lib/dates'
 
 import { useTodaysPlan } from '../hooks/use-todays-plan'
+import {
+  useSetAdjustment,
+  useClearAdjustment,
+  type SetAdjustmentInput,
+} from '../hooks/use-day-adjustments'
 import { ProximaRefeicaoCard } from '../components/proxima-refeicao-card'
 import { RefeicaoCollapsedCard } from '../components/refeicao-collapsed-card'
 import { findNextMealId, timeToMinutes } from '../lib/meal-status'
@@ -16,6 +21,9 @@ import { findNextMealId, timeToMinutes } from '../lib/meal-status'
 // Fase 6 B1: refatora pra destacar "próxima refeição" (card grande,
 //            estilo Print V1) e colapsar as demais com estado visual
 //            (✓ comida / ○ sem entries ou futura).
+// Fase 6 B2: clicar em alternativa do expansível troca a ativa do slot
+//            via plan_day_adjustments. Mutations vivem aqui no parent
+//            (Regra 14 — caller pode desmontar entre dispatch e callback).
 //
 // Estados:
 //   - loading: spinner
@@ -25,14 +33,34 @@ import { findNextMealId, timeToMinutes } from '../lib/meal-status'
 //     colapsados ordenados por target_time)
 //
 // Out of scope (próximos blocos):
-//   - 3-tier overlay com plan_day_adjustments (B2)
-//   - "Quero comer outra coisa" funcional (B2/B6)
 //   - "Registrar esta refeição" funcional (B3)
 //   - Esperado vs Comido no MealCard da Home (B4)
-//   - Motor de substituição protein-aware (B5-B7)
+//   - Motor de substituição protein-aware (B5)
+//   - "Quero comer outra coisa" sheet (B6)
 export default function PlanoPage() {
-  const { planTree, hasActivePlan, entriesByPlanMealId, loading, error } =
-    useTodaysPlan()
+  const {
+    planTree,
+    hasActivePlan,
+    entriesByPlanMealId,
+    adjustmentsBySlotId,
+    today,
+    loading,
+    error,
+  } = useTodaysPlan()
+
+  // Mutations no parent (Regra 14). Mesmo o caller (ProximaRefeicaoCard)
+  // não sendo destruído ao trocar alternativa, mantemos o padrão por
+  // simetria com a feature toda.
+  const setAdjustment = useSetAdjustment()
+  const clearAdjustment = useClearAdjustment()
+
+  const handleChangeAlternativa = (input: SetAdjustmentInput) => {
+    setAdjustment.mutate(input)
+  }
+
+  const handleResetAlternativa = (slotId: string) => {
+    clearAdjustment.mutate({ dateISO: today, plan_slot_id: slotId })
+  }
 
   // Ordenação por target_time crescente. Refeições sem horário ficam
   // no fim, desempate por sort_order. Mesma lógica do plan-edit, mas
@@ -147,7 +175,14 @@ export default function PlanoPage() {
                 if (meal.id !== nextMealId) return null
                 return (
                   <li key={meal.id}>
-                    <ProximaRefeicaoCard meal={meal} />
+                    <ProximaRefeicaoCard
+                      meal={meal}
+                      planId={planTree.plan.id}
+                      todayISO={today}
+                      adjustmentsBySlotId={adjustmentsBySlotId}
+                      onChangeAlternativa={handleChangeAlternativa}
+                      onResetAlternativa={handleResetAlternativa}
+                    />
                   </li>
                 )
               })}
@@ -165,6 +200,7 @@ export default function PlanoPage() {
                       meal={meal}
                       status={status}
                       entries={[]}
+                      adjustmentsBySlotId={adjustmentsBySlotId}
                     />
                   </li>
                 )
@@ -180,6 +216,7 @@ export default function PlanoPage() {
                       meal={meal}
                       status="past-eaten"
                       entries={entries}
+                      adjustmentsBySlotId={adjustmentsBySlotId}
                     />
                   </li>
                 )

@@ -8,15 +8,29 @@ import {
 } from 'lucide-react'
 
 import type { LogEntryWithFood } from '@/features/log/lib/types'
+import type { Database } from '@/types/database'
 
-import { type PlanTreeMealRaw, pgTimeToHHMM } from '../lib/draft-types'
+import {
+  type PlanTreeMealRaw,
+  type PlanTreeSlotRaw,
+  pgTimeToHHMM,
+} from '../lib/draft-types'
 import type { MealStatus } from '../lib/meal-status'
 import { primaryOption } from '../lib/option-macros'
+
+type PlanDayAdjustment =
+  Database['public']['Tables']['plan_day_adjustments']['Row']
 
 interface RefeicaoCollapsedCardProps {
   meal: PlanTreeMealRaw
   status: Exclude<MealStatus, 'next'>
   entries: LogEntryWithFood[]
+  // Map de adjustments do dia (do useTodaysPlan). Quando uma refeição
+  // não-destacada estiver expandida em 'past-empty'/'future', a lista
+  // de items planejados respeita o overlay (mostra a opção ativa de
+  // cada slot, não a primária do plano). Apenas display — refeições
+  // não-destacadas não permitem trocar alternativa (B2 decisão).
+  adjustmentsBySlotId: Map<string, PlanDayAdjustment>
 }
 
 // Card colapsado de uma refeição que NÃO é a próxima (Fase 6 B1).
@@ -35,6 +49,7 @@ export function RefeicaoCollapsedCard({
   meal,
   status,
   entries,
+  adjustmentsBySlotId,
 }: RefeicaoCollapsedCardProps) {
   const [expanded, setExpanded] = useState(false)
   const time = pgTimeToHHMM(meal.target_time)
@@ -85,7 +100,10 @@ export function RefeicaoCollapsedCard({
           {status === 'past-eaten' ? (
             <EntriesList entries={entries} />
           ) : (
-            <PlannedItemsList meal={meal} />
+            <PlannedItemsList
+              meal={meal}
+              adjustmentsBySlotId={adjustmentsBySlotId}
+            />
           )}
         </div>
       )}
@@ -122,7 +140,13 @@ function EntriesList({ entries }: { entries: LogEntryWithFood[] }) {
   )
 }
 
-function PlannedItemsList({ meal }: { meal: PlanTreeMealRaw }) {
+function PlannedItemsList({
+  meal,
+  adjustmentsBySlotId,
+}: {
+  meal: PlanTreeMealRaw
+  adjustmentsBySlotId: Map<string, PlanDayAdjustment>
+}) {
   const sortedSlots = useMemo(
     () => [...meal.slots].sort((a, b) => a.sort_order - b.sort_order),
     [meal.slots],
@@ -139,8 +163,9 @@ function PlannedItemsList({ meal }: { meal: PlanTreeMealRaw }) {
   return (
     <ul className="space-y-1.5">
       {sortedSlots.map((slot, idx) => {
-        const primary = primaryOption(slot)
-        const item = primary?.items[0]
+        const adjustment = adjustmentsBySlotId.get(slot.id)
+        const active = pickActiveOption(slot, adjustment)
+        const item = active?.items[0]
         const fallback = slot.label ?? `Item ${idx + 1}`
         if (!item) {
           return (
@@ -152,15 +177,33 @@ function PlannedItemsList({ meal }: { meal: PlanTreeMealRaw }) {
             </li>
           )
         }
+        const qty = adjustment
+          ? Number(adjustment.adjusted_quantity_g)
+          : Number(item.quantity_g)
         return (
           <li key={slot.id} className="text-sm">
             {item.food.name}
             <span className="ml-1 text-muted-foreground tabular-nums">
-              — {Number(item.quantity_g)}g
+              — {qty}g
             </span>
           </li>
         )
       })}
     </ul>
+  )
+}
+
+// Retorna a opção ativa do slot considerando o adjustment do dia.
+// Sem adjustment → primária do plano (sort_order=0).
+// Com adjustment → option apontada; fallback defensivo na primária se
+// não achar (option deletada do plano).
+function pickActiveOption(
+  slot: PlanTreeSlotRaw,
+  adjustment: PlanDayAdjustment | undefined,
+) {
+  if (!adjustment) return primaryOption(slot)
+  return (
+    slot.options.find((o) => o.id === adjustment.plan_option_id) ??
+    primaryOption(slot)
   )
 }

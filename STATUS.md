@@ -2090,6 +2090,27 @@ Retorna `new_plan_id`. UI no `PlansPage` chama RPC e navega.
 
 Atacar quando Ricardo pedir ou antes da publicação.
 
+### P22 — `plan_day_adjustments` UNIQUE devia ser por slot, não por item (NOVO Fase 6 B2, média)
+
+O constraint UNIQUE atual é `(user_id, adjustment_date, option_item_id)`.
+Semanticamente, "1 ajuste por slot por dia" seria mais correto —
+permitir 2+ adjustments simultâneos no mesmo slot apontando pra options
+diferentes não faz sentido (qual é a "ativa"?).
+
+**Mitigação atual (B2):** `useSetAdjustment` em `use-day-adjustments.ts`
+sempre faz `DELETE WHERE plan_slot_id = ? AND adjustment_date = ?`
+ANTES do INSERT. Garante "1 por slot" via lógica do client, não do
+banco. Não-atômico (2 round-trips); single-user single-tab não tem race.
+
+**Fix definitivo:**
+1. Migration que solta o UNIQUE atual e cria
+   `UNIQUE(user_id, adjustment_date, plan_slot_id)`
+2. RPC `set_day_adjustment(jsonb)` que faz delete+insert atomicamente
+   na mesma transação (substitui a sequência client-side).
+
+Atacar junto com a RPC atômica `apply_substitution` do B5/B6 — provável
+que ambas vivam na mesma migration. Não bloqueia uso atual.
+
 ### P21 — Primeiro plano criado vira ativo automaticamente (NOVO Fase 6 B1 setup, baixa)
 
 Hoje, criar o primeiro plano não o ativa — user precisa fazer o passo

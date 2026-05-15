@@ -5,9 +5,14 @@ import { supabase } from '@/lib/supabase'
 import { getTodayBR } from '@/lib/dates'
 import { useDailyLog } from '@/features/log/hooks/use-daily-log'
 import type { LogEntryWithFood } from '@/features/log/lib/types'
+import type { Database } from '@/types/database'
 
 import { planKeys } from '../lib/query-keys'
 import type { PlanTreeResponse } from '../lib/draft-types'
+import { useDayAdjustments } from './use-day-adjustments'
+
+type PlanDayAdjustment =
+  Database['public']['Tables']['plan_day_adjustments']['Row']
 
 // Hook do /plano (B6). Combina:
 //   1. useDailyLog(hoje) — pega o daily_log de hoje + descobre se há
@@ -35,6 +40,7 @@ import type { PlanTreeResponse } from '../lib/draft-types'
 export function useTodaysPlan() {
   const today = getTodayBR()
   const dailyLogQuery = useDailyLog(today)
+  const adjustmentsQuery = useDayAdjustments(today)
 
   const planId = dailyLogQuery.dailyLog?.plan_id ?? null
 
@@ -64,12 +70,34 @@ export function useTodaysPlan() {
     return map
   }, [dailyLogQuery.meals])
 
+  // Mapa plan_slot_id → adjustment ativo do dia. Fase 6 B2 usa pra
+  // decidir qual option de cada slot está "ativa" (overlay sobre o
+  // plano puro). Workaround do schema bug (P22): garantimos 1
+  // adjustment por slot via cleanup no useSetAdjustment, então o
+  // Map.set não atropela em casos esperados.
+  const adjustmentsBySlotId = useMemo(() => {
+    const map = new Map<string, PlanDayAdjustment>()
+    for (const adj of adjustmentsQuery.data ?? []) {
+      map.set(adj.plan_slot_id, adj)
+    }
+    return map
+  }, [adjustmentsQuery.data])
+
   return {
     planTree: planTreeQuery.data ?? null,
     hasActivePlan: !!planId,
     entriesByPlanMealId,
-    loading: dailyLogQuery.loading || planTreeQuery.isLoading,
-    fetching: dailyLogQuery.fetching || planTreeQuery.isFetching,
-    error: dailyLogQuery.error ?? planTreeQuery.error,
+    adjustmentsBySlotId,
+    today,
+    loading:
+      dailyLogQuery.loading ||
+      planTreeQuery.isLoading ||
+      adjustmentsQuery.isLoading,
+    fetching:
+      dailyLogQuery.fetching ||
+      planTreeQuery.isFetching ||
+      adjustmentsQuery.isFetching,
+    error:
+      dailyLogQuery.error ?? planTreeQuery.error ?? adjustmentsQuery.error,
   }
 }

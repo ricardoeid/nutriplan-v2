@@ -1,4 +1,8 @@
-import type { PlanTreeOptionRaw, PlanTreeSlotRaw } from './draft-types'
+import type {
+  ItemDraftFood,
+  PlanTreeOptionRaw,
+  PlanTreeSlotRaw,
+} from './draft-types'
 
 // Helpers puros pra calcular macros de option/slot/refeição do plano.
 // Extraídos do PlanMealReadonly (Fase 5) na Fase 6 B1 pra reuso entre
@@ -9,6 +13,22 @@ export interface OptionMacros {
   p: number
   c: number
   g: number
+}
+
+// Macros de um food numa qty arbitrária. Útil quando há override de qty
+// (ex: adjustment do dia define qty diferente da cadastrada na option) —
+// Fase 6 B2 / B5.
+export function foodMacrosAtQty(
+  food: ItemDraftFood,
+  qtyG: number,
+): OptionMacros {
+  const factor = qtyG / 100
+  return {
+    kcal: food.kcal_per_100g * factor,
+    p: food.protein_per_100g * factor,
+    c: food.carb_per_100g * factor,
+    g: food.fat_per_100g * factor,
+  }
 }
 
 // Alternativa principal de um slot = option com menor sort_order.
