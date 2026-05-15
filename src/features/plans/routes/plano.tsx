@@ -4,11 +4,9 @@ import { ClipboardList, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { supabase } from '@/lib/supabase'
 import { getNowMinutesBR } from '@/lib/dates'
-import {
-  useAddEntries,
-  type AddEntryItem,
-} from '@/features/log/hooks/use-add-entries'
+import { useAddEntries } from '@/features/log/hooks/use-add-entries'
 
 import { useTodaysPlan } from '../hooks/use-todays-plan'
 import {
@@ -18,6 +16,8 @@ import {
 } from '../hooks/use-day-adjustments'
 import { ProximaRefeicaoCard } from '../components/proxima-refeicao-card'
 import { RefeicaoCollapsedCard } from '../components/refeicao-collapsed-card'
+import type { CommitSelectedSlot } from '../components/meal-commit-sheet'
+import type { PlanTreeMealRaw } from '../lib/draft-types'
 import { findNextMealId, timeToMinutes } from '../lib/meal-status'
 
 // Rota /plano — visão do plano ativo aplicado a hoje.
@@ -41,6 +41,13 @@ import { findNextMealId, timeToMinutes } from '../lib/meal-status'
 //            pelo ProximaRefeicaoCard) com checkboxes pré-marcados,
 //            user desmarca o que não vai comer, batch insert via
 //            useAddEntries (mutation no parent — Regra 14).
+// Fase 6 B3.5: "Abrir refeição" nos colapsados força destaque manual
+//             (forcedNextMealId). Badge "Ajustado hoje".
+// Fase 6 B3.6: ensureLogMealId on-demand (re-cria log_meal se user
+//             deletou pela Home); badge "Ajustado hoje" só pra refeições
+//             registradas com slots não cobertos (trocar alternativa
+//             NÃO conta — alternativas são plano); reset forcedNextMealId
+//             após registrar com sucesso.
 //
 // Out of scope (próximos blocos):
 //   - Esperado vs Comido no MealCard da Home (B4)
@@ -51,8 +58,8 @@ export default function PlanoPage() {
     planTree,
     hasActivePlan,
     entriesByPlanMealId,
-    logMealIdByPlanMealId,
     adjustmentsBySlotId,
+    dailyLogId,
     today,
     loading,
     error,
@@ -76,10 +83,38 @@ export default function PlanoPage() {
   // Async pra que o card consiga await + fechar o sheet em sucesso.
   // Erro: toast + throw — card mantém sheet aberto pro user tentar
   // de novo.
-  const handleRegisterRefeicao = async (entries: AddEntryItem[]) => {
+  //
+  // B3.6 — fix issue 2: se o user deletou a refeição inteira na Home,
+  // a log_meal correspondente sumiu (não é recriada pelo
+  // get_or_create_daily_log porque ele é idempotente no daily_log, não
+  // resseed por meal). Aqui ensureLogMealId garante a row existindo
+  // antes de inserir entries — re-cria se preciso.
+  //
+  // B3.6 — fix issue 3: ao registrar com sucesso, reseta o
+  // forcedNextMealId. Refeição que foi "Abrir refeição"-da vira ✓
+  // verde e desce pra fila das colapsadas (porque agora tem entries),
+  // e a próxima automática por hora vira a destacada de novo.
+  const handleRegisterRefeicao = async (
+    planMeal: PlanTreeMealRaw,
+    selectedSlots: CommitSelectedSlot[],
+  ) => {
+    if (!dailyLogId) {
+      toast.error('Diário do dia ainda carregando. Tente em alguns segundos.')
+      throw new Error('No dailyLogId yet')
+    }
     try {
+      const logMealId = await ensureLogMealId(planMeal, dailyLogId)
+      const entries = selectedSlots.map((s) => ({
+        mealId: logMealId,
+        food: s.food,
+        quantityG: s.quantityG,
+        planSlotId: s.slotId,
+        planOptionId: s.optionId,
+        isOffPlan: false,
+      }))
       await addEntries.mutateAsync({ entries, dateISO: today })
       toast.success('Refeição registrada')
+      setForcedNextMealId(null)
     } catch (err) {
       toast.error('Falha ao registrar refeição. Tente novamente.')
       throw err
@@ -132,25 +167,41 @@ export default function PlanoPage() {
   )
   const nextMealId = forcedNextMealId ?? autoNextMealId
 
-  // Set<plan_meal_id> de refeições que têm pelo menos 1 adjustment ativo
-  // hoje — usado pra exibir badge "Ajustado hoje" tanto na destacada
-  // quanto nas colapsadas. Construído via map auxiliar slot_id → meal_id
-  // (que vem do planTree) cruzado com os adjustments do dia.
-  const mealsWithAdjustments = useMemo(() => {
+  // Set<plan_meal_id> de refeições REGISTRADAS de forma "ajustada".
+  // Trocar alternativa NÃO conta (alternativas são plano — decisão
+  // Ricardo 2026-05-15). O que conta:
+  //   - Refeição registrada (entries.length > 0) com algum slot do
+  //     plano NÃO coberto por entries (= user desmarcou no commit sheet).
+  //   - Entry off-plan presente (=is_off_plan=true) — caso futuro B6
+  //     "Quero comer outra coisa".
+  //
+  // Refeição não registrada (sem entries ainda) NÃO é "ajustada" —
+  // pode estar simplesmente esperando o user comer.
+  const mealsAdjustedToday = useMemo(() => {
     if (!planTree) return new Set<string>()
-    const mealIdBySlotId = new Map<string, string>()
-    for (const meal of planTree.meals) {
-      for (const slot of meal.slots) {
-        mealIdBySlotId.set(slot.id, meal.id)
-      }
-    }
     const set = new Set<string>()
-    for (const adj of adjustmentsBySlotId.values()) {
-      const mealId = mealIdBySlotId.get(adj.plan_slot_id)
-      if (mealId) set.add(mealId)
+    for (const meal of planTree.meals) {
+      const entries = entriesByPlanMealId.get(meal.id) ?? []
+      if (entries.length === 0) continue
+
+      // Slots cobertos = aqueles com entry.plan_slot_id batendo
+      const coveredSlots = new Set(
+        entries
+          .map((e) => e.plan_slot_id)
+          .filter((id): id is string => id !== null),
+      )
+
+      // Algum slot do plano sem entry? → "ajustada" (desmarcação)
+      const hasUncoveredSlot = meal.slots.some(
+        (slot) => !coveredSlots.has(slot.id),
+      )
+      // Alguma entry fora do plano? → "ajustada" (B6 futuro: food novo)
+      const hasOffPlanEntry = entries.some((e) => e.is_off_plan === true)
+
+      if (hasUncoveredSlot || hasOffPlanEntry) set.add(meal.id)
     }
     return set
-  }, [planTree, adjustmentsBySlotId])
+  }, [planTree, entriesByPlanMealId])
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
@@ -235,10 +286,9 @@ export default function PlanoPage() {
                       adjustmentsBySlotId={adjustmentsBySlotId}
                       onChangeAlternativa={handleChangeAlternativa}
                       onResetAlternativa={handleResetAlternativa}
-                      logMealId={logMealIdByPlanMealId.get(meal.id) ?? null}
                       onRegisterRefeicao={handleRegisterRefeicao}
                       registering={addEntries.isPending}
-                      hasAdjustments={mealsWithAdjustments.has(meal.id)}
+                      hasAdjustments={mealsAdjustedToday.has(meal.id)}
                     />
                   </li>
                 )
@@ -258,7 +308,7 @@ export default function PlanoPage() {
                       status={status}
                       entries={[]}
                       adjustmentsBySlotId={adjustmentsBySlotId}
-                      hasAdjustments={mealsWithAdjustments.has(meal.id)}
+                      hasAdjustments={mealsAdjustedToday.has(meal.id)}
                       onAbrirRefeicao={() => setForcedNextMealId(meal.id)}
                     />
                   </li>
@@ -276,7 +326,7 @@ export default function PlanoPage() {
                       status="past-eaten"
                       entries={entries}
                       adjustmentsBySlotId={adjustmentsBySlotId}
-                      hasAdjustments={mealsWithAdjustments.has(meal.id)}
+                      hasAdjustments={mealsAdjustedToday.has(meal.id)}
                       onAbrirRefeicao={() => setForcedNextMealId(meal.id)}
                     />
                   </li>
@@ -288,4 +338,47 @@ export default function PlanoPage() {
       )}
     </div>
   )
+}
+
+// Garante que existe uma log_meal pra esta plan_meal no daily_log de
+// hoje. Retorna o id da log_meal — existente ou recém-criada.
+//
+// Use case (B3.6): user registrou refeição → log_meal criada com
+// plan_meal_id. User foi pra Home e deletou a refeição inteira
+// (DELETE em log_meals). Voltou pra /plano e tentou registrar de
+// novo — sem essa função, o botão fica disabled porque
+// logMealIdByPlanMealId não tem entry pra esse plan_meal_id.
+//
+// activate_meal_plan re-seedaria mas não roda em fluxo normal de uso
+// (só na ativação do plano). get_or_create_daily_log é idempotente no
+// daily_log, não resseed por meal. Esta função é o gancho cirúrgico.
+//
+// Não-atômico (SELECT + INSERT separados). Single-user single-tab não
+// tem race; se virar problema, viramos RPC SECURITY DEFINER no banco.
+async function ensureLogMealId(
+  planMeal: PlanTreeMealRaw,
+  dailyLogId: string,
+): Promise<string> {
+  const { data: existing, error: selError } = await supabase
+    .from('log_meals')
+    .select('id')
+    .eq('daily_log_id', dailyLogId)
+    .eq('plan_meal_id', planMeal.id)
+    .maybeSingle()
+  if (selError) throw selError
+  if (existing) return existing.id
+
+  const { data: created, error: insError } = await supabase
+    .from('log_meals')
+    .insert({
+      daily_log_id: dailyLogId,
+      plan_meal_id: planMeal.id,
+      name: planMeal.name,
+      sort_order: planMeal.sort_order,
+      target_time: planMeal.target_time,
+    })
+    .select('id')
+    .single()
+  if (insError) throw insError
+  return created.id
 }

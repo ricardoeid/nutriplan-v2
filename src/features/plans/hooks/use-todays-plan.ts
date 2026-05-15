@@ -103,6 +103,7 @@ export function useTodaysPlan() {
     entriesByPlanMealId,
     logMealIdByPlanMealId,
     adjustmentsBySlotId,
+    dailyLogId: dailyLogQuery.dailyLog?.id ?? null,
     today,
     loading:
       dailyLogQuery.loading ||

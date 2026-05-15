@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { AddEntryItem } from '@/features/log/hooks/use-add-entries'
+import type { AddEntryFoodInput } from '@/features/log/hooks/use-add-entry'
 import type { Database } from '@/types/database'
 
 import {
@@ -15,16 +15,27 @@ import { foodMacrosAtQty } from '../lib/option-macros'
 type PlanDayAdjustment =
   Database['public']['Tables']['plan_day_adjustments']['Row']
 
+// Slot selecionado pelo user no commit sheet. Caller (parent via card)
+// resolve `logMealId` e constrói AddEntryItem[] final antes de inserir.
+// Esse desacoplamento permite o caller criar a log_meal on-demand se
+// foi deletada (caso edge — user deletou refeição inteira pela Home e
+// quer registrar de novo via /plano).
+export interface CommitSelectedSlot {
+  slotId: string
+  optionId: string
+  food: AddEntryFoodInput
+  quantityG: number
+}
+
 interface MealCommitSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   meal: PlanTreeMealRaw
   adjustmentsBySlotId: Map<string, PlanDayAdjustment>
-  logMealId: string
   // Pode retornar Promise — caller (ProximaRefeicaoCard) usa pra fechar
   // o sheet só em sucesso. Sheet não precisa awaitear; mostra
   // "Registrando..." baseado em `submitting` enquanto a mutation roda.
-  onConfirm: (entries: AddEntryItem[]) => void | Promise<void>
+  onConfirm: (slots: CommitSelectedSlot[]) => void | Promise<void>
   submitting?: boolean
 }
 
@@ -56,7 +67,6 @@ export function MealCommitSheet({
   onOpenChange,
   meal,
   adjustmentsBySlotId,
-  logMealId,
   onConfirm,
   submitting = false,
 }: MealCommitSheetProps) {
@@ -145,10 +155,11 @@ export function MealCommitSheet({
   }
 
   const handleConfirm = () => {
-    const entries: AddEntryItem[] = rows
+    const selected: CommitSelectedSlot[] = rows
       .filter((row) => !deselected.has(row.slotId))
       .map((row) => ({
-        mealId: logMealId,
+        slotId: row.slotId,
+        optionId: row.optionId,
         food: {
           id: row.food.id,
           name: row.food.name,
@@ -162,11 +173,8 @@ export function MealCommitSheet({
           fat_per_100g: row.food.fat_per_100g,
         },
         quantityG: row.qty,
-        planSlotId: row.slotId,
-        planOptionId: row.optionId,
-        isOffPlan: false,
       }))
-    onConfirm(entries)
+    onConfirm(selected)
   }
 
   return (
