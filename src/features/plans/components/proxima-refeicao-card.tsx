@@ -41,6 +41,10 @@ interface ProximaRefeicaoCardProps {
   // off-plan). Trocar alternativa não conta (alternativas SÃO o plano).
   // Mostra badge "Ajustado hoje" no header.
   hasAdjustments: boolean
+  // Fase 6 B6: callback que abre o SubstitutionFlow no parent. Quando
+  // null/undefined, botão "Quero comer outra coisa" fica disabled
+  // (caso edge — refeição sem slots).
+  onAbrirSubstituicao?: () => void
 }
 
 // Card "PRÓXIMA REFEIÇÃO" destacado (Fase 6 B1 + B2).
@@ -64,10 +68,10 @@ interface ProximaRefeicaoCardProps {
 //     principal sempre".
 //   - Macros do header e do slot refletem dinamicamente a ativa.
 //
-// Out of scope (próximos blocos):
-//   - "Registrar esta refeição" funcional → B3.
-//   - "Quero comer outra coisa" funcional → B5 + B6 (engine + sheets).
-//   - Estes 2 botões ficam DISABLED com title="Em breve".
+// B3: "Registrar esta refeição" funcional via MealCommitSheet (sheet
+// stacked com checkboxes pré-marcados).
+// B6: "Quero comer outra coisa" funcional via SubstitutionFlow no
+// parent — botão dispara onAbrirSubstituicao.
 export function ProximaRefeicaoCard({
   meal,
   planId,
@@ -78,6 +82,7 @@ export function ProximaRefeicaoCard({
   onRegisterRefeicao,
   registering,
   hasAdjustments,
+  onAbrirSubstituicao,
 }: ProximaRefeicaoCardProps) {
   const time = pgTimeToHHMM(meal.target_time)
   const [commitSheetOpen, setCommitSheetOpen] = useState(false)
@@ -185,8 +190,8 @@ export function ProximaRefeicaoCard({
           type="button"
           variant="outline"
           className="w-full"
-          disabled
-          title="Em breve"
+          onClick={() => onAbrirSubstituicao?.()}
+          disabled={!onAbrirSubstituicao || sortedSlots.length === 0}
         >
           <Shuffle className="mr-2 h-4 w-4" />
           Quero comer outra coisa

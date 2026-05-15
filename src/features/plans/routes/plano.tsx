@@ -5,8 +5,9 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
-import { getNowMinutesBR } from '@/lib/dates'
+import { getNowMinutesBR, getTodayBR } from '@/lib/dates'
 import { useAddEntries } from '@/features/log/hooks/use-add-entries'
+import { useDailyLog } from '@/features/log/hooks/use-daily-log'
 
 import { useTodaysPlan } from '../hooks/use-todays-plan'
 import {
@@ -19,6 +20,7 @@ import { RefeicaoCollapsedCard } from '../components/refeicao-collapsed-card'
 import type { CommitSelectedSlot } from '../components/meal-commit-sheet'
 import type { PlanTreeMealRaw } from '../lib/draft-types'
 import { findNextMealId, timeToMinutes } from '../lib/meal-status'
+import { SubstitutionFlow } from '@/features/substitution/components/substitution-flow'
 
 // Rota /plano — visão do plano ativo aplicado a hoje.
 //
@@ -58,12 +60,20 @@ export default function PlanoPage() {
     planTree,
     hasActivePlan,
     entriesByPlanMealId,
+    logMealIdByPlanMealId,
     adjustmentsBySlotId,
     dailyLogId,
     today,
     loading,
     error,
   } = useTodaysPlan()
+
+  // Daily log pra B6 (consumedSoFar do engine + dayTargets do snapshot).
+  // TanStack Query cacheia — useDailyLog é o mesmo chamado internamente
+  // por useTodaysPlan, então não duplica request.
+  const todayISO = getTodayBR()
+  const dailyLog = useDailyLog(todayISO)
+  void todayISO // todayISO === today; usado apenas pra forçar consistência
 
   // Mutations no parent (Regra 14). Mesmo o caller (ProximaRefeicaoCard)
   // não sendo destruído ao trocar alternativa, mantemos o padrão por
@@ -167,41 +177,102 @@ export default function PlanoPage() {
   )
   const nextMealId = forcedNextMealId ?? autoNextMealId
 
-  // Set<plan_meal_id> de refeições REGISTRADAS de forma "ajustada".
-  // Trocar alternativa NÃO conta (alternativas são plano — decisão
-  // Ricardo 2026-05-15). O que conta:
-  //   - Refeição registrada (entries.length > 0) com algum slot do
-  //     plano NÃO coberto por entries (= user desmarcou no commit sheet).
-  //   - Entry off-plan presente (=is_off_plan=true) — caso futuro B6
-  //     "Quero comer outra coisa".
+  // Fase 6 B6: state do SubstitutionFlow. Quando aberto, renderiza
+  // overlay de sheets sobre o /plano. Fechar = cancelar (nada persiste).
+  const [substitutionFlowOpen, setSubstitutionFlowOpen] = useState(false)
+
+  // plan_meal da próxima (alvo da substituição quando user clica
+  // "Quero comer outra coisa")
+  const targetPlanMeal = useMemo(() => {
+    if (!nextMealId || !planTree) return null
+    return planTree.meals.find((m) => m.id === nextMealId) ?? null
+  }, [nextMealId, planTree])
+
+  // Refeições futuras (cronológica > target + sem entries hoje).
+  // Engine propaga excesso só pras que estão "à frente" do target e
+  // ainda não foram registradas.
+  const futurePlanMeals = useMemo(() => {
+    if (!targetPlanMeal || !planTree) return []
+    const targetMinutes = timeToMinutes(targetPlanMeal.target_time)
+    return planTree.meals.filter((m) => {
+      if (m.id === targetPlanMeal.id) return false
+      const entries = entriesByPlanMealId.get(m.id) ?? []
+      if (entries.length > 0) return false
+      // Sem target_time fica no fim — não é "futura" estritamente.
+      const mealMinutes = timeToMinutes(m.target_time)
+      if (mealMinutes === null || targetMinutes === null) return false
+      return mealMinutes > targetMinutes
+    })
+  }, [targetPlanMeal, planTree, entriesByPlanMealId])
+
+  // Set<plan_meal_id> de refeições "ajustadas hoje". Disparam o badge
+  // "Ajustado hoje". Trocar alternativa via B2 NÃO conta (alternativas
+  // são plano).
   //
-  // Refeição não registrada (sem entries ainda) NÃO é "ajustada" —
-  // pode estar simplesmente esperando o user comer.
+  // Disparos:
+  //   1. Refeição REGISTRADA (entries.length > 0) com algum slot do
+  //      plano NÃO coberto por entries (user desmarcou no commit sheet)
+  //   2. Refeição com alguma entry off-plan (B6 — "Quero comer outra
+  //      coisa" com food novo)
+  //   3. Refeição com plan_day_adjustments cuja qty DIFERE da option
+  //      cadastrada no plano (B6 — propagação alterou qty pra preservar
+  //      o dia; ou refeição-alvo com items zerados que viraram adjustment)
+  //
+  // Caso #3 é a chave pra diferenciar troca de alternativa (B2 — qty =
+  // cadastrada) de propagação/substituição (B6 — qty alterada).
   const mealsAdjustedToday = useMemo(() => {
     if (!planTree) return new Set<string>()
     const set = new Set<string>()
+
+    // Map auxiliar: option_id → qty cadastrada no plano (pra comparar
+    // contra adjusted_quantity_g).
+    const cadastradaQtyByOptionId = new Map<string, number>()
+    const mealIdByOptionId = new Map<string, string>()
+    for (const meal of planTree.meals) {
+      for (const slot of meal.slots) {
+        for (const opt of slot.options) {
+          const qty = Number(opt.items[0]?.quantity_g ?? 0)
+          cadastradaQtyByOptionId.set(opt.id, qty)
+          mealIdByOptionId.set(opt.id, meal.id)
+        }
+      }
+    }
+
     for (const meal of planTree.meals) {
       const entries = entriesByPlanMealId.get(meal.id) ?? []
-      if (entries.length === 0) continue
 
-      // Slots cobertos = aqueles com entry.plan_slot_id batendo
-      const coveredSlots = new Set(
-        entries
-          .map((e) => e.plan_slot_id)
-          .filter((id): id is string => id !== null),
-      )
-
-      // Algum slot do plano sem entry? → "ajustada" (desmarcação)
-      const hasUncoveredSlot = meal.slots.some(
-        (slot) => !coveredSlots.has(slot.id),
-      )
-      // Alguma entry fora do plano? → "ajustada" (B6 futuro: food novo)
-      const hasOffPlanEntry = entries.some((e) => e.is_off_plan === true)
-
-      if (hasUncoveredSlot || hasOffPlanEntry) set.add(meal.id)
+      // Disparo 1 e 2: entries
+      if (entries.length > 0) {
+        const coveredSlots = new Set(
+          entries
+            .map((e) => e.plan_slot_id)
+            .filter((id): id is string => id !== null),
+        )
+        const hasUncoveredSlot = meal.slots.some(
+          (slot) => !coveredSlots.has(slot.id),
+        )
+        const hasOffPlanEntry = entries.some((e) => e.is_off_plan === true)
+        if (hasUncoveredSlot || hasOffPlanEntry) {
+          set.add(meal.id)
+          continue
+        }
+      }
     }
+
+    // Disparo 3: adjustments com qty diferente da cadastrada
+    for (const adj of adjustmentsBySlotId.values()) {
+      const mealId = mealIdByOptionId.get(adj.plan_option_id)
+      if (!mealId) continue
+      const cadastrada = cadastradaQtyByOptionId.get(adj.plan_option_id)
+      if (cadastrada === undefined) continue
+      const adjustedQty = Number(adj.adjusted_quantity_g)
+      if (Math.abs(adjustedQty - cadastrada) > 0.01) {
+        set.add(mealId)
+      }
+    }
+
     return set
-  }, [planTree, entriesByPlanMealId])
+  }, [planTree, entriesByPlanMealId, adjustmentsBySlotId])
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24">
@@ -289,6 +360,11 @@ export default function PlanoPage() {
                       onRegisterRefeicao={handleRegisterRefeicao}
                       registering={addEntries.isPending}
                       hasAdjustments={mealsAdjustedToday.has(meal.id)}
+                      onAbrirSubstituicao={
+                        dailyLogId
+                          ? () => setSubstitutionFlowOpen(true)
+                          : undefined
+                      }
                     />
                   </li>
                 )
@@ -336,6 +412,34 @@ export default function PlanoPage() {
           )}
         </>
       )}
+
+      {/* Fase 6 B6: SubstitutionFlow renderizado em overlay. State no
+          parent pra que abrir/fechar não desmonte os sheets a cada
+          re-render do card. */}
+      {substitutionFlowOpen &&
+        targetPlanMeal &&
+        planTree &&
+        dailyLogId &&
+        logMealIdByPlanMealId.get(targetPlanMeal.id) && (
+          <SubstitutionFlow
+            open={substitutionFlowOpen}
+            onOpenChange={setSubstitutionFlowOpen}
+            planId={planTree.plan.id}
+            todayISO={today}
+            dayTargets={{
+              kcal: Number(dailyLog.dailyLog?.calorie_target_snapshot ?? 0),
+              protein: Number(dailyLog.dailyLog?.protein_target_snapshot ?? 0),
+              carbs: Number(dailyLog.dailyLog?.carb_target_snapshot ?? 0),
+              fat: Number(dailyLog.dailyLog?.fat_target_snapshot ?? 0),
+            }}
+            dailyLogId={dailyLogId}
+            targetLogMealId={logMealIdByPlanMealId.get(targetPlanMeal.id)!}
+            targetPlanMeal={targetPlanMeal}
+            futurePlanMeals={futurePlanMeals}
+            adjustmentsBySlotId={adjustmentsBySlotId}
+            dailyLogMeals={dailyLog.meals}
+          />
+        )}
     </div>
   )
 }
