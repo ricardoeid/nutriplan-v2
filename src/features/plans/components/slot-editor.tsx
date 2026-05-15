@@ -117,7 +117,7 @@ export function SlotEditor({
               {idx > 0 && (
                 <li
                   aria-hidden
-                  className="py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  className="py-0.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                 >
                   ou
                 </li>
