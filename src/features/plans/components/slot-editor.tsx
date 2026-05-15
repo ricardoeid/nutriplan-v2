@@ -75,7 +75,7 @@ export function SlotEditor({
   const canRemoveAlternativa = sortedOptions.length > 1
 
   return (
-    <div className="rounded-lg border bg-muted/40 p-3">
+    <div className="rounded-lg border bg-muted/70 p-3">
       <div className="mb-3 flex items-center gap-2">
         <Input
           value={slot.label ?? ''}
@@ -109,15 +109,15 @@ export function SlotEditor({
       ) : (
         // Lista de alternativas separadas por "ou" — reforça que são
         // exclusivas dentro do slot (idioma de plano de nutricionista
-        // no papel). Fragment necessário pra renderizar o separador
-        // entre items sem quebrar a semântica de <li>.
-        <ul className="mb-2 space-y-1.5">
+        // no papel). Sem space-y no ul: o próprio "ou" é o espaçador
+        // natural entre items (mais compacto).
+        <ul className="mb-2">
           {sortedOptions.map((option, idx) => (
             <Fragment key={option.id}>
               {idx > 0 && (
                 <li
                   aria-hidden
-                  className="py-0.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  className="py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                 >
                   ou
                 </li>
