@@ -1,9 +1,14 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ClipboardList, Settings } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { getNowMinutesBR } from '@/lib/dates'
+import {
+  useAddEntries,
+  type AddEntryItem,
+} from '@/features/log/hooks/use-add-entries'
 
 import { useTodaysPlan } from '../hooks/use-todays-plan'
 import {
@@ -32,8 +37,12 @@ import { findNextMealId, timeToMinutes } from '../lib/meal-status'
 //   - com plano ativo: sub-header "Plano ativo" sutil + cards (destaque +
 //     colapsados ordenados por target_time)
 //
+// Fase 6 B3: "Registrar esta refeição" → MealCommitSheet (renderizado
+//            pelo ProximaRefeicaoCard) com checkboxes pré-marcados,
+//            user desmarca o que não vai comer, batch insert via
+//            useAddEntries (mutation no parent — Regra 14).
+//
 // Out of scope (próximos blocos):
-//   - "Registrar esta refeição" funcional (B3)
 //   - Esperado vs Comido no MealCard da Home (B4)
 //   - Motor de substituição protein-aware (B5)
 //   - "Quero comer outra coisa" sheet (B6)
@@ -42,6 +51,7 @@ export default function PlanoPage() {
     planTree,
     hasActivePlan,
     entriesByPlanMealId,
+    logMealIdByPlanMealId,
     adjustmentsBySlotId,
     today,
     loading,
@@ -53,6 +63,7 @@ export default function PlanoPage() {
   // simetria com a feature toda.
   const setAdjustment = useSetAdjustment()
   const clearAdjustment = useClearAdjustment()
+  const addEntries = useAddEntries()
 
   const handleChangeAlternativa = (input: SetAdjustmentInput) => {
     setAdjustment.mutate(input)
@@ -60,6 +71,19 @@ export default function PlanoPage() {
 
   const handleResetAlternativa = (slotId: string) => {
     clearAdjustment.mutate({ dateISO: today, plan_slot_id: slotId })
+  }
+
+  // Async pra que o card consiga await + fechar o sheet em sucesso.
+  // Erro: toast + throw — card mantém sheet aberto pro user tentar
+  // de novo.
+  const handleRegisterRefeicao = async (entries: AddEntryItem[]) => {
+    try {
+      await addEntries.mutateAsync({ entries, dateISO: today })
+      toast.success('Refeição registrada')
+    } catch (err) {
+      toast.error('Falha ao registrar refeição. Tente novamente.')
+      throw err
+    }
   }
 
   // Ordenação por target_time crescente. Refeições sem horário ficam
@@ -182,6 +206,9 @@ export default function PlanoPage() {
                       adjustmentsBySlotId={adjustmentsBySlotId}
                       onChangeAlternativa={handleChangeAlternativa}
                       onResetAlternativa={handleResetAlternativa}
+                      logMealId={logMealIdByPlanMealId.get(meal.id) ?? null}
+                      onRegisterRefeicao={handleRegisterRefeicao}
+                      registering={addEntries.isPending}
                     />
                   </li>
                 )

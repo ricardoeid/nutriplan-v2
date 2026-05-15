@@ -70,6 +70,20 @@ export function useTodaysPlan() {
     return map
   }, [dailyLogQuery.meals])
 
+  // Mapa plan_meal_id → log_meal_id da refeição do diário de hoje. Fase
+  // 6 B3 usa pra construir entries no "Registrar esta refeição" sheet
+  // (log_entries.log_meal_id precisa apontar pra log_meal correta).
+  // Esses log_meals foram seedados pelo activate_meal_plan (ou
+  // get_or_create_daily_log quando o dia começou com plano ativo).
+  const logMealIdByPlanMealId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const meal of dailyLogQuery.meals) {
+      if (!meal.plan_meal_id) continue
+      map.set(meal.plan_meal_id, meal.id)
+    }
+    return map
+  }, [dailyLogQuery.meals])
+
   // Mapa plan_slot_id → adjustment ativo do dia. Fase 6 B2 usa pra
   // decidir qual option de cada slot está "ativa" (overlay sobre o
   // plano puro). Workaround do schema bug (P22): garantimos 1
@@ -87,6 +101,7 @@ export function useTodaysPlan() {
     planTree: planTreeQuery.data ?? null,
     hasActivePlan: !!planId,
     entriesByPlanMealId,
+    logMealIdByPlanMealId,
     adjustmentsBySlotId,
     today,
     loading:

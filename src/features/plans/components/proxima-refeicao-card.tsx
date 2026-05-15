@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Clock, Shuffle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import type { AddEntryItem } from '@/features/log/hooks/use-add-entries'
 import type { Database } from '@/types/database'
 
 import {
@@ -12,6 +13,7 @@ import {
 } from '../lib/draft-types'
 import { foodMacrosAtQty } from '../lib/option-macros'
 import type { SetAdjustmentInput } from '../hooks/use-day-adjustments'
+import { MealCommitSheet } from './meal-commit-sheet'
 
 type PlanDayAdjustment =
   Database['public']['Tables']['plan_day_adjustments']['Row']
@@ -23,6 +25,20 @@ interface ProximaRefeicaoCardProps {
   adjustmentsBySlotId: Map<string, PlanDayAdjustment>
   onChangeAlternativa: (input: SetAdjustmentInput) => void
   onResetAlternativa: (slotId: string) => void
+  // Fase 6 B3: callbacks pra "Registrar esta refeição".
+  //   - logMealId: id da log_meal correspondente a esta plan_meal no
+  //     daily_log de hoje. Null se ainda não existe (caso raríssimo —
+  //     activate_meal_plan deveria ter seedado).
+  //   - onRegisterRefeicao: callback pro parent (que tem a mutation
+  //     useAddEntries — Regra 14). Recebe array de entries pré-construídas
+  //     pelo MealCommitSheet (slots marcados + qty + macros + plan refs).
+  //   - registering: enquanto true, MealCommitSheet desabilita botões e
+  //     mostra "Registrando..." pra evitar dupla submissão.
+  logMealId: string | null
+  // Async pra que o card consiga await + fechar o sheet em sucesso.
+  // Parent (PlanoPage) lança em erro pra manter sheet aberto.
+  onRegisterRefeicao: (entries: AddEntryItem[]) => Promise<void>
+  registering: boolean
 }
 
 // Card "PRÓXIMA REFEIÇÃO" destacado (Fase 6 B1 + B2).
@@ -57,8 +73,12 @@ export function ProximaRefeicaoCard({
   adjustmentsBySlotId,
   onChangeAlternativa,
   onResetAlternativa,
+  logMealId,
+  onRegisterRefeicao,
+  registering,
 }: ProximaRefeicaoCardProps) {
   const time = pgTimeToHHMM(meal.target_time)
+  const [commitSheetOpen, setCommitSheetOpen] = useState(false)
 
   const sortedSlots = useMemo(
     () => [...meal.slots].sort((a, b) => a.sort_order - b.sort_order),
@@ -147,8 +167,9 @@ export function ProximaRefeicaoCard({
         <Button
           type="button"
           className="w-full"
-          disabled
-          title="Em breve"
+          onClick={() => setCommitSheetOpen(true)}
+          disabled={!logMealId || sortedSlots.length === 0 || registering}
+          title={!logMealId ? 'Refeição não encontrada no diário' : undefined}
         >
           Registrar esta refeição
         </Button>
@@ -163,6 +184,26 @@ export function ProximaRefeicaoCard({
           Quero comer outra coisa
         </Button>
       </div>
+
+      {logMealId && (
+        <MealCommitSheet
+          open={commitSheetOpen}
+          onOpenChange={setCommitSheetOpen}
+          meal={meal}
+          adjustmentsBySlotId={adjustmentsBySlotId}
+          logMealId={logMealId}
+          onConfirm={async (entries) => {
+            try {
+              await onRegisterRefeicao(entries)
+              setCommitSheetOpen(false)
+            } catch {
+              // toast de erro foi disparado no parent;
+              // sheet fica aberto pro user tentar de novo
+            }
+          }}
+          submitting={registering}
+        />
+      )}
     </article>
   )
 }

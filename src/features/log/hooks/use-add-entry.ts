@@ -83,6 +83,24 @@ export function useAddEntry() {
         .single()
 
       if (error) throw error
+
+      // Bump use_count + last_used (P12 do STATUS — alimenta filtros
+      // "Frequentes" e "Recentes" do /foods e ranking do search_foods).
+      // Fire-and-forget: se a RPC falhar, a entry já foi criada — só
+      // logamos pra triagem.
+      //
+      // Cast `as never` porque database.ts gerado ainda não conhece a
+      // RPC nova (criada na migration 20260515090000). Regerar tipos
+      // via `bunx supabase gen types` remove a necessidade. Anotado
+      // como pendência pós-aplicação da migration.
+      const { error: bumpError } = await supabase.rpc(
+        'bump_food_use' as never,
+        { p_food_id: food.id } as never,
+      )
+      if (bumpError) {
+        console.warn('bump_food_use failed for', food.id, bumpError)
+      }
+
       return data as LogEntryRow
     },
 

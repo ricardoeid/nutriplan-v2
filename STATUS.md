@@ -1953,26 +1953,25 @@ Hoje React Router v6 sem `<Route path="*">` mostra página em branco em
 rotas inexistentes. Adicionar componente NotFound simples + rota catch-all.
 Decidido com Ricardo: pós-MVP, junto com prep pra publicação. Não bloqueia.
 
-### P12 — `user_food_prefs.use_count` não incrementa em log (média)
+### P12 — `user_food_prefs.use_count` não incrementa em log (RESOLVIDO B3 da Fase 6)
 
-Filtros "Frequentes" e "Recentes" em `/foods` ficam estáticos pra alimentos
-que o user só logou. Implementar increment atômico via RPC:
+✅ **Resolvido em 2026-05-15 (migration `20260515090000`).**
 
-```sql
-CREATE OR REPLACE FUNCTION public.bump_food_use(p_food_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-BEGIN
-  INSERT INTO user_food_prefs (user_id, food_id, use_count, last_used)
-  VALUES (auth.uid(), p_food_id, 1, now())
-  ON CONFLICT (user_id, food_id)
-  DO UPDATE SET use_count = user_food_prefs.use_count + 1,
-                last_used = now();
-END $$;
-```
+Migration cria RPC `bump_food_use(p_food_id uuid)` que faz upsert no
+`user_food_prefs` (ON CONFLICT em `(user_id, food_id)` — incrementa
+`use_count` e atualiza `last_used`).
 
-Depois chamar `supabase.rpc('bump_food_use', { p_food_id })` no `useAddEntry`
-após sucesso do INSERT em log_entries. Atacar quando filtros "Frequentes"
-incomodarem o user.
+Chamadas adicionadas em **todas** as superfícies que inserem entries
+(Regra B.2 universal):
+- `useAddEntry` (singular — Home AddFoodSheet, /foods FAB)
+- `useAddEntries` (batch — `/plano` Registrar esta refeição B3)
+
+Fire-and-forget: se a RPC falhar, a entry já foi criada — só logamos
+`console.warn` pra triagem. Não impacta o sucesso da inserção.
+
+**Side effect bom:** `search_foods` (RPC da busca) tem ranking bonus pra
+`use_count > 0` e `last_used` recente — agora começa a aprender hábitos
+do user organicamente conforme ele loga.
 
 ### P13 — Drift de macros em modo % após reload (suspeita aberta)
 
@@ -2089,6 +2088,34 @@ cascateado de plan + meals + slots + options + items mantendo a árvore.
 Retorna `new_plan_id`. UI no `PlansPage` chama RPC e navega.
 
 Atacar quando Ricardo pedir ou antes da publicação.
+
+### P23 — Ajuste automático ao desmarcar item no MealCommitSheet (NOVO Fase 6 B3, futuro)
+
+No sheet "Registrar esta refeição" (B3), o user pode desmarcar items
+que não vai comer. Comportamento atual: apenas remove do total — outros
+items mantêm qty inalterada. Ricardo levantou a ideia de **ajustar
+automaticamente** as qty dos outros items pra preservar kcal/proteína
+da refeição quando o user desmarca algo.
+
+**Trade-off identificado** (Ricardo, 2026-05-15): "pode ficar ruim se
+for algo sem possibilidade de deixar como está" — ou seja, redistribuição
+automática pode parecer invasiva (user não pediu pra mexer nos outros)
+ou contra-intuitiva (qty muda enquanto user só desmarcou). Decisão
+adiada pra investigar UX com calma.
+
+**Possíveis abordagens** quando atacar:
+1. **Sempre redistribuir**: similar ao engine de B5. Pode irritar quem
+   só queria "tirar 1 coisa".
+2. **Opt-in via toggle no sheet**: "Ajustar outros pra preservar kcal?"
+   checkbox. Custo: 1 escolha extra por uso do sheet.
+3. **Sugestão pós-desmarcação**: banner "Você desmarcou X kcal. Aumentar
+   outros pra preservar a refeição? [Sim] [Não]". Decisão por click,
+   reversível.
+
+Atacar como bloco curto após B6 polish (engine pronto, reusa lógica
+do `runSubstitution` simplificado). Pode também viver no painel "Quero
+comer outra coisa" — se o engine cobrir cenários parecidos, evita
+duplicar implementação.
 
 ### P22 — `plan_day_adjustments` UNIQUE devia ser por slot, não por item (NOVO Fase 6 B2, média)
 
