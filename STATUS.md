@@ -2011,19 +2011,30 @@ user pode deletar daily_log de hoje pra forçar recriar (não tem UI mas
 SQL direto resolve). Vamos atacar antes da publicação ou quando virar
 caso real reportado.
 
-### P16 — `activate_meal_plan` usa `CURRENT_DATE` (UTC), não BR (NOVO Fase 5)
+### P16 — `activate_meal_plan` usa `CURRENT_DATE` (UTC), não BR (RESOLVIDO B1.5 da Fase 6)
 
-O body da RPC (vide §2) usa `CURRENT_DATE` pra encontrar o daily_log
-de hoje. Entre 21h-23:59 BR (= 00:00-02:59 UTC do dia seguinte), o
-server pensa que é amanhã. Resultado: o cleanup-and-seed roda num
-daily_log que não existe ainda → seed não acontece. Não trava nada:
-quando user abrir o diário amanhã, `get_or_create_daily_log` cria
-normalmente. Mas user pode ver "ativei e nada aconteceu" se for tarde.
+✅ **Resolvido em 2026-05-14 (commit pendente, migration `20260514213000`).**
 
-**Como atacar:** trocar `CURRENT_DATE` por
-`(now() AT TIME ZONE 'America/Sao_Paulo')::date` na RPC. Mesma estratégia
-da migration `20260506000000` em `weight_logs.logged_on`. 1 migration
-trivial. Atacar quando virar caso real.
+Bug reportado por Ricardo durante setup do B1 da Fase 6: às 21:20 BR
+criou plano novo, salvou, ativou — `/planos` mostrava badge "Ativo"
+mas `/plano` mostrava "Você não tem plano ativo". Investigação revelou
+que a RPC usava `CURRENT_DATE` (UTC) — às 21:20 BR é 00:20 UTC do dia
+seguinte. O `SELECT id INTO v_today_log_id` falhava (daily_log de
+amanhã não existe ainda), bloco `IF` inteiro era pulado, daily_log
+real de hoje ficava com `plan_id NULL` e log_meals com defaults.
+
+Cross-check confirmou que TODOS os daily_logs do user tinham `plan_id
+NULL` (não só hoje) — sintoma do bug acumulando em todos os dias que
+o user ativou plano após 21h BR. Conserto manual via UPDATE direto
+pra cada daily_log afetado, ou recriar via `get_or_create_daily_log`.
+
+**Fix:** migration `20260514213000_fix_activate_meal_plan_timezone.sql`
+substitui `CURRENT_DATE` por `(now() AT TIME ZONE 'America/Sao_Paulo')::date`.
+Mesma estratégia da migration `20260506000000`. Resto do body idêntico.
+
+**Ressyncar dias afetados manualmente:** ver bloco `DO $$ ... $$` na
+discussão da Fase 6 B1.5 (history do chat) — preserva entries existentes
+do user, deleta log_meals defaults vazios, seeda log_meals do plano.
 
 ### P17 — Save de plano sem transação real (NOVO Fase 5)
 
