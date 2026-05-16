@@ -15,6 +15,7 @@ import {
   compareMealsByTime,
   foodSearchResultToItemFood,
 } from '../lib/draft-types'
+import { planTotalsDraft } from '../lib/option-macros'
 import { PlanValidationError } from '../lib/errors'
 
 // Editor de plano alimentar.
@@ -72,6 +73,14 @@ export default function PlanEditPage() {
   const sortedMeals = useMemo(() => {
     if (!draft) return []
     return [...draft.meals].sort(compareMealsByTime)
+  }, [draft])
+
+  // B7.1: total do plano (soma das principais de cada slot de cada
+  // refeição). Atualiza ao vivo enquanto user mexe — feedback rápido
+  // pra montar um plano com macros próximos da meta do user.
+  const planTotals = useMemo(() => {
+    if (!draft) return null
+    return planTotalsDraft(draft.meals)
   }, [draft])
 
   // Quando user escolhe food pra criar um alimento novo (slot):
@@ -203,6 +212,17 @@ export default function PlanEditPage() {
               disabled={saving}
             />
           </div>
+
+          {planTotals && sortedMeals.length > 0 && (
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Total do plano</p>
+              <p className="mt-0.5 text-sm font-medium tabular-nums">
+                ≈ {Math.round(planTotals.kcal)} kcal · P{' '}
+                {planTotals.p.toFixed(1)}g · C {planTotals.c.toFixed(1)}g · G{' '}
+                {planTotals.g.toFixed(1)}g
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <h2 className="text-sm font-medium text-muted-foreground">

@@ -207,12 +207,10 @@ export function SubstitutionReviewSheet({
               As calorias do dia ficarão acima da meta ({kcalPct}%).
             </WarningBox>
           )}
-          {warnings.excessNotFullyAbsorbed && (
-            <WarningBox>
-              Não foi possível absorver todo o excesso. Considere reduzir a
-              porção.
-            </WarningBox>
-          )}
+          {/* excessNotFullyAbsorbed escondido na UI (decisão Ricardo
+              B7.1): redundante com calorieAboveCeiling em quase todos
+              os casos. Engine continua computando o warning — fica
+              disponível pra futuros consumers (analytics, etc.). */}
         </div>
 
         <div className="space-y-2 border-t p-4">

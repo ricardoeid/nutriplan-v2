@@ -1,7 +1,9 @@
 import type {
   ItemDraftFood,
+  MealDraft,
   PlanTreeOptionRaw,
   PlanTreeSlotRaw,
+  SlotDraft,
 } from './draft-types'
 
 // Helpers puros pra calcular macros de option/slot/refeição do plano.
@@ -129,6 +131,53 @@ export function activeMealTotals(
       if (!item) return acc
       const qty = adj ? Number(adj.adjusted_quantity_g) : Number(item.quantity_g)
       const m = foodMacrosAtQty(item.food, qty)
+      return {
+        kcal: acc.kcal + m.kcal,
+        p: acc.p + m.p,
+        c: acc.c + m.c,
+        g: acc.g + m.g,
+      }
+    },
+    { kcal: 0, p: 0, c: 0, g: 0 },
+  )
+}
+
+// ─── Versões pra MealDraft (editor de plano) ────────────────────────
+//
+// Editor usa draft types (SlotDraft + OptionDraft + ItemDraft) onde
+// item.food pode ser null (edge case raro). Sempre soma a PRINCIPAL
+// (sort_order=0) de cada slot — alternativas (sort > 0) são "ou", não
+// contam pro total da refeição.
+
+export function mealTotalsDraft(slots: SlotDraft[]): OptionMacros {
+  return slots.reduce<OptionMacros>(
+    (acc, slot) => {
+      const sortedOpts = [...slot.options].sort(
+        (a, b) => a.sort_order - b.sort_order,
+      )
+      const primary = sortedOpts[0]
+      if (!primary) return acc
+      const item = primary.items[0]
+      if (!item || !item.food) return acc
+      const factor = item.quantity_g / 100
+      return {
+        kcal: acc.kcal + item.food.kcal_per_100g * factor,
+        p: acc.p + item.food.protein_per_100g * factor,
+        c: acc.c + item.food.carb_per_100g * factor,
+        g: acc.g + item.food.fat_per_100g * factor,
+      }
+    },
+    { kcal: 0, p: 0, c: 0, g: 0 },
+  )
+}
+
+// Total do plano inteiro: soma das `mealTotalsDraft` de cada refeição.
+// Usado no header do plan-edit pra dar visão de "≈ 2400 kcal" enquanto
+// user monta o plano.
+export function planTotalsDraft(meals: MealDraft[]): OptionMacros {
+  return meals.reduce<OptionMacros>(
+    (acc, meal) => {
+      const m = mealTotalsDraft(meal.slots)
       return {
         kcal: acc.kcal + m.kcal,
         p: acc.p + m.p,

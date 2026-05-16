@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import type { FoodSearchResult } from '@/features/foods/lib/types'
 
 import { type MealDraft, isDraftId } from '../lib/draft-types'
+import { mealTotalsDraft } from '../lib/option-macros'
 
 import { FoodPickerSheet } from './food-picker-sheet'
 import { SlotEditor } from './slot-editor'
@@ -55,6 +56,11 @@ export function MealEditorCard({
   // vindas do banco começam colapsadas.
   const [expanded, setExpanded] = useState(() => isDraftId(meal.id))
   const [pickerOpen, setPickerOpen] = useState(false)
+
+  // B7.1: macros somadas dos PRINCIPAIS de cada slot. Mostra mesmo
+  // quando refeição colapsada — user vê total sem expandir.
+  const totals = useMemo(() => mealTotalsDraft(meal.slots), [meal.slots])
+  const hasSlots = meal.slots.length > 0
 
   const handleRemove = () => {
     const ok = window.confirm(
@@ -116,6 +122,13 @@ export function MealEditorCard({
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
+
+      {hasSlots && (
+        <p className="px-3 pb-2 text-xs tabular-nums text-muted-foreground">
+          ≈ {Math.round(totals.kcal)} kcal · P {totals.p.toFixed(1)}g · C{' '}
+          {totals.c.toFixed(1)}g · G {totals.g.toFixed(1)}g
+        </p>
+      )}
 
       {expanded && (
         <div className="space-y-3 border-t bg-muted/20 p-3">
