@@ -425,6 +425,72 @@ describe('runSubstitution — warnings', () => {
   })
 })
 
+describe('runSubstitution — excludedFutureMealIds (B7)', () => {
+  it('15. excluir 1 future meal: aquela fica intacta, residualExcess maior', () => {
+    // Cenário desenhado pra que as 2 futuras juntas NÃO absorvam tudo
+    // (residual > 0 mesmo no baseline). Excluindo 1, residual cresce
+    // mais.
+    const target = [makeItem(SALADA, 50, 'salada-t')]  // 7.5 kcal
+    const future1 = makeMeal([makeItem(ARROZ, 100, 'f1')], {
+      id: 'future-1',
+      target_time: '15:00:00',
+    })  // 130 kcal
+    const future2 = makeMeal([makeItem(ARROZ, 100, 'f2')], {
+      id: 'future-2',
+      target_time: '19:00:00',
+    })  // 130 kcal
+    const inputWithAll = inputFor(target, PIZZA, 200, [future1, future2])
+    const resultAll = runSubstitution(inputWithAll)
+    // Pizza 200g = 530 kcal. Excess = 522.5. Futuras juntas = 260 kcal.
+    // Mesmo cortando tudo, sobra ~262.5 residual.
+
+    const inputExcluded: SubstitutionInput = {
+      ...inputWithAll,
+      excludedFutureMealIds: new Set(['future-2']),
+    }
+    const resultExcluded = runSubstitution(inputExcluded)
+
+    // future-2 NÃO deve ter adjustment quando excluída
+    const f2InExcluded = resultExcluded.futureMealsAdjustments.find(
+      (f) => f.mealId === 'future-2',
+    )
+    expect(f2InExcluded).toBeUndefined()
+
+    // future-1 ainda deve estar (ela absorve sozinha o que conseguir)
+    const f1InExcluded = resultExcluded.futureMealsAdjustments.find(
+      (f) => f.mealId === 'future-1',
+    )
+    expect(f1InExcluded).toBeDefined()
+
+    // Residual maior quando excluiu uma (capacidade caiu de 260 pra 130 kcal)
+    expect(resultExcluded.residualExcessKcal).toBeGreaterThan(
+      resultAll.residualExcessKcal,
+    )
+  })
+
+  it('16. excluir TODAS as futuras: residualExcess = excess total', () => {
+    const target = [makeItem(SALADA, 50, 'salada-t')]  // 7.5 kcal
+    const future1 = makeMeal([makeItem(FRANGO, 200, 'f1')], {
+      id: 'future-1',
+      target_time: '15:00:00',
+    })
+    const future2 = makeMeal([makeItem(ARROZ, 250, 'f2')], {
+      id: 'future-2',
+      target_time: '19:00:00',
+    })
+    const input: SubstitutionInput = {
+      ...inputFor(target, PIZZA, 100, [future1, future2]),
+      excludedFutureMealIds: new Set(['future-1', 'future-2']),
+    }
+    const result = runSubstitution(input)
+
+    // Nenhuma future ajustada
+    expect(result.futureMealsAdjustments).toHaveLength(0)
+    // Residual = excess inteiro (pizza 100g 265 kcal - target 7.5 kcal)
+    expect(result.residualExcessKcal).toBeGreaterThan(250)
+  })
+})
+
 // Sanity: constantes não acidentalmente mexidas
 describe('engine constants', () => {
   it('expõe thresholds esperados (regressão de quebra)', () => {

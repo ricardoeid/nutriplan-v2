@@ -374,17 +374,22 @@ export function runSubstitution(input: SubstitutionInput): SubstitutionResult {
     if (unabsorbed > 0) excess = unabsorbed
   }
 
-  // 5. Propagação pras futuras
+  // 5. Propagação pras futuras (B7 — filtra excludedFutureMealIds antes).
+  // Futuras NÃO excluídas (= elegíveis) absorvem excess proporcional.
+  // Futuras excluídas ficam intactas (qty original) — share que iria
+  // pra elas vira residualExcess.
+  const excludedSet = input.excludedFutureMealIds ?? new Set<string>()
+  const eligibleFutures = futureMeals.filter((m) => !excludedSet.has(m.id))
   let futureMealsAdjustments: MealAdjustment[] = []
   let residualExcess = excess
 
-  if (excess > 0 && futureMeals.length > 0) {
-    const futureKcals = futureMeals.map((m) => mealMacros(m.items).kcal)
+  if (excess > 0 && eligibleFutures.length > 0) {
+    const futureKcals = eligibleFutures.map((m) => mealMacros(m.items).kcal)
     const totalFutureKcal = futureKcals.reduce((a, b) => a + b, 0)
     if (totalFutureKcal > 0) {
       const shares = futureKcals.map((k) => excess * (k / totalFutureKcal))
       let absorbedTotal = 0
-      futureMealsAdjustments = futureMeals.map((meal, i) => {
+      futureMealsAdjustments = eligibleFutures.map((meal, i) => {
         const share = shares[i]
         const adj = reduceMealToBudget(meal.items, share, strategy)
         const cut = meal.items.reduce(
@@ -396,20 +401,30 @@ export function runSubstitution(input: SubstitutionInput): SubstitutionResult {
       })
       residualExcess = Math.max(0, excess - absorbedTotal)
     }
-    // se totalFutureKcal === 0 (todas futuras vazias), residualExcess
-    // fica = excess (não há onde absorver).
+    // se totalFutureKcal === 0 (todas elegíveis vazias), residualExcess
+    // fica = excess. Idem se eligibleFutures vazio.
   }
 
   // 6. Totais finais do dia
-  const finalTargetMacros = sumMacros(targetItemAdjustments.map(adjustmentMacros))
+  // Mapa mealId → MealAdjustment pra distinguir futuras AJUSTADAS de
+  // futuras INTACTAS (excluídas ou sem propagação).
+  const adjustedFutureMealIds = new Set(
+    futureMealsAdjustments.map((fma) => fma.mealId),
+  )
+  const finalTargetMacros = sumMacros(
+    targetItemAdjustments.map(adjustmentMacros),
+  )
   const finalFuturesMacros = sumMacros(
     futureMealsAdjustments.flatMap((fma) =>
       fma.itemAdjustments.map(adjustmentMacros),
     ),
   )
+  // Futuras intactas: aquelas em futureMeals que NÃO receberam adjustment
+  // (excluídas pelo user OU caso totalFutureKcal === 0). Seus items
+  // permanecem na qty original.
   const unchangedFuturesMacros = sumMacros(
     futureMeals
-      .filter((_, i) => !futureMealsAdjustments[i])
+      .filter((m) => !adjustedFutureMealIds.has(m.id))
       .flatMap((m) => m.items.map(itemMacros)),
   )
 

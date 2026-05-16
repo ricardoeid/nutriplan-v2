@@ -101,6 +101,12 @@ export function SubstitutionFlow({
   const [step, setStep] = useState<'food' | 'review' | 'commit'>('food')
   const [chosenFood, setChosenFood] = useState<FoodSearchResult | null>(null)
   const [chosenQty, setChosenQty] = useState<number>(0)
+  // B7: meals excluídas da compensação (user desmarcou checkbox no
+  // review). Default vazio = todas elegíveis. Engine re-roda quando
+  // muda (via useMemo deps).
+  const [excludedFutureMealIds, setExcludedFutureMealIds] = useState<
+    Set<string>
+  >(new Set())
   const apply = useApplySubstitution()
 
   // Reset quando o flow abre.
@@ -109,8 +115,18 @@ export function SubstitutionFlow({
       setStep('food')
       setChosenFood(null)
       setChosenQty(0)
+      setExcludedFutureMealIds(new Set())
     }
   }, [open])
+
+  const toggleExcludeFuture = (mealId: string) => {
+    setExcludedFutureMealIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(mealId)) next.delete(mealId)
+      else next.add(mealId)
+      return next
+    })
+  }
 
   // Map auxiliar: engineItemKey → {slotId, optionId, itemId} pra montar
   // payload da RPC sem perder referências. Engine usa SubstitutionItem.id
@@ -196,6 +212,7 @@ export function SubstitutionFlow({
         quantity_g: chosenQty,
       },
       day: { consumedSoFar, dayTargets },
+      excludedFutureMealIds,
     }
 
     return runSubstitution(input)
@@ -208,6 +225,7 @@ export function SubstitutionFlow({
     targetPlanMeal,
     adjustmentsBySlotId,
     dayTargets,
+    excludedFutureMealIds,
   ])
 
   if (!open) return null
@@ -239,6 +257,8 @@ export function SubstitutionFlow({
         futureMealsByMealId={futureMealsByMealId}
         onConfirm={() => setStep('commit')}
         onCancel={() => onOpenChange(false)}
+        excludedFutureMealIds={excludedFutureMealIds}
+        onToggleExcludeFuture={toggleExcludeFuture}
       />
     )
   }
@@ -259,6 +279,8 @@ export function SubstitutionFlow({
           onConfirm={() => setStep('commit')}
           onCancel={() => onOpenChange(false)}
           submitting={apply.isPending}
+          excludedFutureMealIds={excludedFutureMealIds}
+          onToggleExcludeFuture={toggleExcludeFuture}
         />
         <SubstitutionCommitSheet
           open={true}

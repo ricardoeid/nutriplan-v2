@@ -76,6 +76,12 @@ export interface SubstitutionInput {
   futureMeals: SubstitutionMeal[]
   chosen: SubstitutionChoice
   day: SubstitutionDayContext
+  // Opcional — set de meal ids que o user EXCLUIU da compensação (B7).
+  // Default = vazio = todas as futuras são candidatas a absorver excess.
+  // Refeições excluídas ficam com qty original (sem adjustments) e o
+  // share que iria pra elas vira parte de residualExcess. UX:
+  // checkboxes no review sheet permitem user marcar/desmarcar.
+  excludedFutureMealIds?: Set<string>
 }
 
 export type PreservationStrategy =

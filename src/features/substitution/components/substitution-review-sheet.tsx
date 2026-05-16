@@ -22,6 +22,11 @@ interface SubstitutionReviewSheetProps {
   onConfirm: () => void
   onCancel: () => void
   submitting?: boolean
+  // B7: refeições futuras que o user EXCLUIU da compensação. Default
+  // vazio = todas elegíveis. Toggle no checkbox dispara re-cálculo no
+  // flow controller (engine puro re-roda com novo set).
+  excludedFutureMealIds: Set<string>
+  onToggleExcludeFuture: (mealId: string) => void
 }
 
 // Sheet "Revisar substituição" (Fase 6 B6) — print 4 V1.
@@ -48,6 +53,8 @@ export function SubstitutionReviewSheet({
   onConfirm,
   onCancel,
   submitting = false,
+  excludedFutureMealIds,
+  onToggleExcludeFuture,
 }: SubstitutionReviewSheetProps) {
   void _onOpenChange
   // Esc fecha (= cancelar)
@@ -114,32 +121,61 @@ export function SubstitutionReviewSheet({
             </ul>
           </section>
 
-          {/* Refeições futuras (se houve propagação) */}
-          {futureMealsAdjustments.length > 0 && (
+          {/* B7: checkboxes por refeição futura. User pode desmarcar pra
+              excluir aquela da compensação — engine re-roda sem ela e
+              residualExcess cresce. Mostra TODAS as futuras candidatas,
+              não só as que receberam adjustment. */}
+          {futureMealsByMealId.size > 0 && (
             <section>
               <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Próximas refeições (Ajustadas)
+                Compensar em
               </h3>
               <div className="mt-2 space-y-3">
-                {futureMealsAdjustments.map((fma) => {
-                  // Só mostra refeições com algum item efetivamente mudado
-                  const changed = fma.itemAdjustments.filter(
-                    (a) => a.adjustedQuantityG !== a.originalQuantityG,
+                {[...futureMealsByMealId.entries()].map(([mealId, meal]) => {
+                  const isExcluded = excludedFutureMealIds.has(mealId)
+                  const fma = futureMealsAdjustments.find(
+                    (f) => f.mealId === mealId,
                   )
-                  if (changed.length === 0) return null
-                  const meal = futureMealsByMealId.get(fma.mealId)
+                  const changed =
+                    fma?.itemAdjustments.filter(
+                      (a) => a.adjustedQuantityG !== a.originalQuantityG,
+                    ) ?? []
                   return (
-                    <div key={fma.mealId}>
-                      <p className="text-sm font-medium">
-                        {meal?.name ?? '—'}
-                      </p>
-                      <ul className="mt-1 space-y-1">
-                        {changed.map((adj) => (
-                          <li key={adj.itemId}>
-                            <ItemDiffRow adj={adj} />
-                          </li>
-                        ))}
-                      </ul>
+                    <div key={mealId}>
+                      <button
+                        type="button"
+                        onClick={() => onToggleExcludeFuture(mealId)}
+                        disabled={submitting}
+                        aria-pressed={!isExcluded}
+                        className={
+                          'flex w-full items-center gap-2 rounded-md p-1.5 text-left transition-colors ' +
+                          (isExcluded
+                            ? 'opacity-60 hover:bg-muted/40'
+                            : 'hover:bg-muted/40')
+                        }
+                      >
+                        <Checkbox checked={!isExcluded} />
+                        <span className="text-sm font-medium">{meal.name}</span>
+                      </button>
+                      {!isExcluded && changed.length > 0 && (
+                        <ul className="mt-1 space-y-1 pl-7">
+                          {changed.map((adj) => (
+                            <li key={adj.itemId}>
+                              <ItemDiffRow adj={adj} />
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {!isExcluded && changed.length === 0 && (
+                        <p className="pl-7 text-xs italic text-muted-foreground">
+                          (sem ajuste necessário)
+                        </p>
+                      )}
+                      {isExcluded && (
+                        <p className="pl-7 text-xs italic text-muted-foreground">
+                          (não compensar — fica como planejado)
+                        </p>
+                      )}
                     </div>
                   )
                 })}
@@ -263,6 +299,38 @@ function WarningBox({ children }: { children: React.ReactNode }) {
     <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
       <p>{children}</p>
+    </div>
+  )
+}
+
+// Checkbox visual manual — mesmo padrão do meal-commit-sheet. Sem
+// dep de @radix-ui/react-checkbox. O pai (botão) controla aria-pressed,
+// então o div é decorativo.
+function Checkbox({ checked }: { checked: boolean }) {
+  return (
+    <div
+      aria-hidden
+      className={
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ' +
+        (checked
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-input bg-background')
+      }
+    >
+      {checked && (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3 w-3"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      )}
     </div>
   )
 }
