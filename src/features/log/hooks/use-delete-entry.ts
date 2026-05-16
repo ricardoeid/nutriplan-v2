@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { supabase } from '@/lib/supabase'
+import { planKeys } from '@/features/plans/lib/query-keys'
 
 import { logKeys } from '../lib/query-keys'
 import type { DailyLogPayload, DayTotals } from '../lib/types'
@@ -94,6 +95,13 @@ export function useDeleteEntry() {
       // Reconcilia com servidor. Garante consistência caso o optimistic
       // tenha divergido por race (improvável em delete simples).
       queryClient.invalidateQueries({ queryKey: logKeys.daily(vars.dateISO) })
+      // Triggers no banco (B6.1) limpam adjustments propagados em
+      // outras refeições do dia quando uma entry off-plan é deletada.
+      // Invalida o cache de adjustments pra refletir esse cleanup no
+      // /plano e na Home (Esperado vs Comido).
+      queryClient.invalidateQueries({
+        queryKey: planKeys.adjustments(vars.dateISO),
+      })
     },
   })
 }

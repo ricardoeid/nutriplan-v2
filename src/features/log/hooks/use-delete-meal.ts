@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { supabase } from '@/lib/supabase'
+import { planKeys } from '@/features/plans/lib/query-keys'
 
 import { logKeys } from '../lib/query-keys'
 import type { DailyLogPayload, DayTotals } from '../lib/types'
@@ -75,6 +76,13 @@ export function useDeleteMeal() {
 
     onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: logKeys.daily(vars.dateISO) })
+      // Triggers no banco (B6.1) limpam adjustments propagados em outras
+      // refeições do dia quando uma log_meal com plan_meal_id é deletada.
+      // Invalida o cache de adjustments pra refletir esse cleanup no
+      // /plano e na Home (Esperado vs Comido).
+      queryClient.invalidateQueries({
+        queryKey: planKeys.adjustments(vars.dateISO),
+      })
     },
   })
 }
