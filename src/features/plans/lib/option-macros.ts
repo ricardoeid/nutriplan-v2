@@ -111,6 +111,11 @@ export function activeOptionInSlot(
 // Totais de uma refeição usando opções ATIVAS (overlay) + qty do
 // adjustment quando há. Slot sem option ou option sem item contribui
 // zero — defensivo com schemas/dados parciais.
+//
+// USA QTY AJUSTADA — reflete o estado real do dia incluindo
+// propagações/substituições. Use em sheets de review, no /plano card
+// destacado (preview do que vai consumir). NÃO use em "Esperado plano"
+// na Home — pra isso use mealTotalsExpected.
 export function activeMealTotals(
   slots: PlanTreeSlotRaw[],
   adjustmentsBySlotId: Map<string, ActiveAdjustment>,
@@ -123,6 +128,39 @@ export function activeMealTotals(
       const item = active.items[0]
       if (!item) return acc
       const qty = adj ? Number(adj.adjusted_quantity_g) : Number(item.quantity_g)
+      const m = foodMacrosAtQty(item.food, qty)
+      return {
+        kcal: acc.kcal + m.kcal,
+        p: acc.p + m.p,
+        c: acc.c + m.c,
+        g: acc.g + m.g,
+      }
+    },
+    { kcal: 0, p: 0, c: 0, g: 0 },
+  )
+}
+
+// Totais ESPERADOS de uma refeição: usa opção ATIVA (overlay com
+// adjustment B2 — alternativas SÃO o plano) mas QTY CADASTRADA da
+// option (ignora adjusted_quantity_g do B6 — propagação/substituição
+// não muda o que era "esperado" pelo nutricionista).
+//
+// Use no MealCard da Home pra "Esperado plano: X kcal · YP · ZC · WG".
+// Match V1: print mostra "Esperado plano: 646 kcal" mantido mesmo
+// após substituição que ajustou items pra menos.
+export function mealTotalsExpected(
+  slots: PlanTreeSlotRaw[],
+  adjustmentsBySlotId: Map<string, ActiveAdjustment>,
+): OptionMacros {
+  return slots.reduce<OptionMacros>(
+    (acc, slot) => {
+      const adj = adjustmentsBySlotId.get(slot.id)
+      const active = activeOptionInSlot(slot, adj)
+      if (!active) return acc
+      const item = active.items[0]
+      if (!item) return acc
+      // Sempre qty cadastrada — ignora adjusted_quantity_g
+      const qty = Number(item.quantity_g)
       const m = foodMacrosAtQty(item.food, qty)
       return {
         kcal: acc.kcal + m.kcal,

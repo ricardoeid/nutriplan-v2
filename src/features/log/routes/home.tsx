@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { getTodayBR } from '@/lib/dates'
 import type { FoodSearchResult } from '@/features/foods/lib/types'
 import { useTodaysPlan } from '@/features/plans/hooks/use-todays-plan'
-import { activeMealTotals } from '@/features/plans/lib/option-macros'
+import { mealTotalsExpected } from '@/features/plans/lib/option-macros'
 
 import { AddFoodSheet } from '../components/add-food-sheet'
 import { DailyProgressCard } from '../components/daily-progress-card'
@@ -57,7 +57,11 @@ function HomePage() {
     if (!isToday || !todaysPlan.planTree) return new Map<string, MealMacroTotals>()
     const map = new Map<string, MealMacroTotals>()
     for (const planMeal of todaysPlan.planTree.meals) {
-      const totals = activeMealTotals(
+      // Esperado plano = qty CADASTRADA (sem adjusted_quantity_g). B2
+      // (alternativas) entra no overlay porque alternativas são plano;
+      // B6 (propagações/substituições) é IGNORADO porque "esperado" não
+      // muda — só "comido agora" muda. Match V1 print.
+      const totals = mealTotalsExpected(
         planMeal.slots,
         todaysPlan.adjustmentsBySlotId,
       )

@@ -42,6 +42,11 @@ interface SubstitutionFlowProps {
   // sheets ficam escondidos.
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Disparado após RPC apply_substitution suceder. Caller usa pra
+  // resetar state derivado (ex: forcedNextMealId no PlanoPage — após
+  // substituição, refeição ganha entries e desce pra fila ✓; auto-next
+  // por hora vira destacada de novo).
+  onSuccess?: () => void
 
   // Contexto do plano e dia (vindo do PlanoPage).
   planId: string
@@ -82,6 +87,7 @@ interface SubstitutionFlowProps {
 export function SubstitutionFlow({
   open,
   onOpenChange,
+  onSuccess,
   planId,
   todayISO,
   dayTargets,
@@ -277,6 +283,7 @@ export function SubstitutionFlow({
               void dailyLogId // pra TS não acusar unused se buildApplyPayload mudar
               await apply.mutateAsync({ dateISO: todayISO, payload })
               toast.success('Substituição registrada')
+              onSuccess?.()
               onOpenChange(false)
             } catch (err) {
               toast.error('Falha ao registrar substituição. Tente novamente.')

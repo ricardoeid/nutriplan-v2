@@ -424,6 +424,7 @@ export default function PlanoPage() {
           <SubstitutionFlow
             open={substitutionFlowOpen}
             onOpenChange={setSubstitutionFlowOpen}
+            onSuccess={() => setForcedNextMealId(null)}
             planId={planTree.plan.id}
             todayISO={today}
             dayTargets={{
