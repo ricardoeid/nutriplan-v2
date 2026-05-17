@@ -1,11 +1,11 @@
 # NutriPlan V2 — STATUS
 
-**Última atualização:** 2026-05-14 (fim da Fase 5 do projeto)
-**Commit em prod:** `d9a1a6b` — `fix(foods): tokenizar busca pra permitir multi-palavra em qualquer ordem`
+**Última atualização:** 2026-05-16 (fim da Fase 6 do projeto)
+**Commit em prod:** `6be7fa9` — `feat(plan-edit): totais por refeição + total do plano + remove warning redundante (B7.1)`
 **Repo:** github.com/ricardoeid/nutriplan-v2 — Vercel deploy autom em `main`
 
 Este arquivo é o ponto de retomada do projeto. Próximo chat lê isso, fecha
-o arquivo, e começa a Fase 6 com contexto suficiente pra trabalhar sem
+o arquivo, e começa a Fase 7 com contexto suficiente pra trabalhar sem
 reler o histórico todo. **É a fonte canônica de verdade** — quando houver
 conflito entre este documento e qualquer outro (blueprint, memórias), o
 STATUS vence pra o estado atual; o blueprint vale como roadmap.
@@ -33,9 +33,10 @@ NutriPlan é um app de planejamento e tracking alimentar. Distribuição
 **100% nativa** (iOS + Android via Capacitor) — sem PWA. Mercado BR. Foco em:
 
 - Banco TACO (591 alimentos brasileiros) + custom foods + composite recipes
-- Open Food Facts integrado (adiado — ver §12)
+- Open Food Facts integrado (adiado — ver §13)
 - Planos alimentares estruturados (Fase 5 — ✅ fechada)
-- Motor de substituição protein-aware (Fase 6 — próxima)
+- Motor de substituição protein-aware (Fase 6 — ✅ fechada)
+- Pré-publicação (Fase 7 — próxima)
 
 V1 foi escrito no Lovable Cloud + TanStack Start. V2 é rewrite from scratch
 no stack abaixo, com o mesmo banco Supabase migrado.
@@ -339,8 +340,10 @@ várias migradas. Sempre confirmar `src/types/database.ts` antes de propor
 | `search_foods` | p_user_id, p_query, p_filter, p_limit | row[] | Busca ranqueada (Fase 3, **tokenizada na Fase 5 — ver §4**) |
 | `search_unused_cached_off` | p_user_id, p_query, p_limit | row[] | OFFs cacheados não usados |
 | `get_or_create_daily_log` | p_date date | uuid | Cria/retorna daily_log + seeda log_meals (Fase 4) |
-| `activate_meal_plan` | p_plan_id uuid | void | Ativa plano + cleanup-and-seed do daily_log de hoje (Fase 5) |
+| `activate_meal_plan` | p_plan_id uuid | void | Ativa plano + cleanup-and-seed do daily_log de hoje (Fase 5; **timezone BR fixed B1.5 Fase 6**) |
 | `get_plan_tree` | p_plan_id uuid | jsonb | Tree completo do plano (Fase 5) |
+| `bump_food_use` | p_food_id uuid | void | UPSERT em user_food_prefs (use_count++, last_used=now) — alimenta filtros "Frequentes"/"Recentes" e ranking do search_foods. Chamada por todo log_entry inserido (Fase 6 B3) |
+| `apply_substitution` | p_payload jsonb | void | RPC atômica do motor de substituição — INSERT log_entries + plan_day_adjustments + bump_food_use em 1 transação. SECURITY DEFINER + replace semantics por plan_meal_id (Fase 6 B6) |
 | `get_daily_log_owner` | dl_id | uuid | Ownership walker pra RLS |
 | `get_food_owner` | food_id | uuid | Ownership walker |
 | `get_log_meal_owner` | lm_id | uuid | Ownership walker |
@@ -559,10 +562,17 @@ necessário pra `bunx supabase start` (Postgres local) — não usamos.
 ### Triggers
 
 - `cleanup_plan_day_adjustments_on_entry_delete` — AFTER DELETE em
-  `log_entries` com `is_off_plan=true`. Limpa adjustments correspondentes.
-- `cleanup_plan_day_adjustments_on_meal_delete` — AFTER DELETE em `log_meals`.
+  `log_entries` com `is_off_plan=true`. Limpa adjustments do plan_meal-alvo
+  + (B6.1) também adjustments propagados em OUTROS plan_meals do dia
+  cuja qty difere da cadastrada na option (= ajustes do engine, não
+  trocas de alternativa do B2).
+- `cleanup_plan_day_adjustments_on_meal_delete` — AFTER DELETE em
+  `log_meals` com `plan_meal_id` != null. Mesma lógica do anterior:
+  limpa adjustments do plan_meal + propagados em outros.
 
-(Ambos do V1 migrados. Relevantes pra Fase 6.)
+(Ambos do V1 migrados. **Atualizados em B6.1 da Fase 6** — migration
+`20260516000000_cleanup_triggers_propagation.sql` — pra cobrir propagação
+de excesso do engine de substituição.)
 
 ### Dados em `foods`
 
@@ -1305,7 +1315,7 @@ Rota `/foods` com:
 | B5 | Create custom food (form dual-mode) | 7e99243 |
 | B6 | Detail readonly + Edit | 8c29318 |
 | B6-fix | Toggle favorite quebrava com detail cache | 89111e8 |
-| B7+B8 | OFF API integration (REVERTED — ver §12/P1) | — |
+| B7+B8 | OFF API integration (REVERTED — ver §13/P1) | — |
 | B9 | Hide foods + undo + profile section | 874b1be |
 
 ### Aditivos da Fase 4 que tocaram em arquivos da Fase 3
@@ -1798,7 +1808,169 @@ o schema (eventualmente), só os helpers mudam.
 
 ---
 
-## 11. ANTI-PADRÕES OBSERVADOS (PRA NÃO REPETIR)
+## 11. FASE 6 — FECHADA ✅ (DETALHADO — fase recém-fechada)
+
+### Entrega final
+
+Motor de substituição protein-aware completo. O usuário pode trocar
+entre alternativas cadastradas no plano, registrar refeição inteira
+com checkboxes, ou escolher um food totalmente novo ("Quero comer outra
+coisa") — engine ajusta a refeição-alvo e propaga excesso pras refeições
+futuras do dia. UI completa: review sheet com strikethrough, commit
+sheet stacked, warnings amarelos, escolha de quais futuras absorver.
+
+Em paralelo: home ganha "Esperado plano · Comido agora" com ícones target;
+editor de plano ganha somatórios por refeição e total geral; 2 pendências
+históricas resolvidas (P12 use_count + P16 timezone do activate_meal_plan).
+
+15 commits, 5671 insertions, 356 deletions. 17 testes Vitest, 100% green.
+
+### Blocos executados
+
+| Bloco | Conteúdo | Commit |
+|---|---|---|
+| B1 | `/plano`: card "PRÓXIMA REFEIÇÃO" destacado + cards colapsados com ✓/○ + ordenação por distância absoluta ao horário + 3 zonas | `bc13d39`, `f8050ab`, `6ac0fe4`, `0b69c79` |
+| B1.5 | Fix P16: `activate_meal_plan` usa timezone BR (era UTC) | `120d449` |
+| B1.6 | Polish editor: `bg-muted/70` no slot + "ou" entre alternativas + spacing compacto + tsconfig limpo (sem baseUrl) | `3323adc`, `6bbd7ef`, `93dd912` |
+| B2 | Trocar entre alternativas via click no expansível (sem badge "trocado" — alternativas são plano) | `3e9876b` |
+| B3 | "Registrar esta refeição" → MealCommitSheet com checkboxes pré-marcados + `useAddEntries` batch + `bump_food_use` universal | `588fe9c` |
+| B3.5 | "Abrir refeição" nos colapsados força destaque (forcedNextMealId) + badge "Ajustado hoje" | `0144491` |
+| B3.6 | Fix badge só pra refeições com slots não cobertos ou off-plan + ensureLogMealId on-demand + reset forced após registrar | `e8bd338` |
+| B4 | "Esperado plano · Comido agora" no MealCard da Home + 4 ícones target (◎/↗/↘/○) por macro | `b87ad99` |
+| B5 | Engine puro `runSubstitution` + 17 testes Vitest (3 estratégias, propagação, whole-units, boundaries, warnings) | `3b228dc` |
+| B6 | UI completa "Quero comer outra coisa" (food picker → review → commit stacked) + RPC atômica `apply_substitution` | `6f3433c` |
+| B6.1 | Fix 1: reset forcedNextMealId pós-substituição. Fix 2: `mealTotalsExpected` na Home (qty cadastrada, não ajustada). Fix 3: migration cleanup triggers cobrir propagação | `0534f01`, `c492164` |
+| B7 | Checkboxes "Compensar em X" no review — user escolhe quais futuras absorvem (feature além do V1) | `c95ca39` |
+| B7.1 | Totais somados no editor (por refeição + plano inteiro) + remove warning `excessNotFullyAbsorbed` (redundante com calorieAboveCeiling) | `6be7fa9` |
+
+### Migrations aplicadas no banco
+
+1. `20260514213000_fix_activate_meal_plan_timezone.sql` (B1.5) — substitui `CURRENT_DATE` por `(now() AT TIME ZONE 'America/Sao_Paulo')::date` no body da RPC `activate_meal_plan`. Resolve P16.
+
+2. `20260515090000_create_bump_food_use.sql` (B3) — cria RPC `bump_food_use(p_food_id uuid)` que faz UPSERT em `user_food_prefs` (use_count++, last_used=now). Resolve P12.
+
+3. `20260515180000_create_apply_substitution.sql` (B6) — cria RPC `apply_substitution(p_payload jsonb)` atômica. Recebe payload com target_entries + target_adjustments + future_adjustments + food_ids_to_bump; faz tudo numa transação SECURITY DEFINER com replace semantics por plan_meal_id.
+
+4. `20260516000000_cleanup_triggers_propagation.sql` (B6.1) — atualiza as 2 triggers existentes pra também limparem adjustments propagados em OUTROS plan_meals do dia (heurística: qty != cadastrada).
+
+### Decisões de produto importantes (memórias salvas)
+
+**Plano vs Home — filosofia clara** (memória `project_plano_vs_home_philosophy.md`):
+- Aba Plano = "vou seguir o plano hoje" (modo guiado, mexe em adjustments)
+- Aba Home = "log livre" (não mexe em plano)
+- "Quero comer outra coisa" = food NOVO via engine (propagação ativa)
+- Alternativas SÃO o plano (B2 não dispara badge "Ajustado hoje" nem warning)
+- Sem propagação foi a decisão inicial → revertida pro modelo V1 (propaga com proteção de proteína) durante setup do B5
+
+**Sem prazos** (memória `feedback_no_deadlines.md`):
+- Não usar "X dias" como variável de custo em decisões
+- Foco em risco, dívida técnica e experiência
+
+**Trade-offs explícitos sempre** (memória `feedback_explain_tradeoffs.md`):
+- Ricardo leigo em parte do stack; opções secas com 1 linha cada não bastam
+- Apresentar opções com "o que está em jogo" antes da recomendação
+
+### Modelos de dados conceituais
+
+**Modelo "Alimento + Alternativa"** (refactor da Fase 5 mantido):
+- Cada slot tem 1+ alternativas (options). Primeira (sort_order=0) é a "principal".
+- Alternativas são "ou" (exclusivas). Slots são "e" (combinadas).
+- UI no /plano e editor reflete isso: principal grande, alternativas expansível.
+
+**3-tier overlay no `/plano`:**
+- Tier 1: `log_entries` (o que foi efetivamente comido hoje) — mais alta prioridade
+- Tier 2: `plan_day_adjustments` (escolha do dia: alternativa diferente OU propagação)
+- Tier 3: plano puro (`get_plan_tree`) — fallback
+
+Hooks que materializam o overlay: `useTodaysPlan` retorna `planTree` + `entriesByPlanMealId` + `adjustmentsBySlotId` + `logMealIdByPlanMealId` + `dailyLogId` + `today`. Cards consomem os 3 e decidem o que mostrar.
+
+### Engine (src/features/substitution/lib/)
+
+**Decisões mantidas do Apêndice 11 do blueprint (V1 portado):**
+- 3 estratégias (preserve / neutral / reduce) baseadas em `chosenProteinPct = chosen.protein / sum(target.protein)`
+- Thresholds: < 0.3 preserve, 0.3-0.8 neutral, ≥ 0.8 reduce
+- Factor 0.7 pro top-protein item (preserve corta menos / reduce 1/0.7 corta mais)
+- Whole-units stepwise pra `recalc_whole_units_only` (ovos) — `Math.floor` em múltiplos de `default_serving_g`
+- Propagação pras futuras com MESMA estratégia da target (decisão α — alternativa β = cada futura decide própria pode entrar como pendência)
+- 3 warnings: `proteinBelowFloor` (target × 0.9), `calorieAboveCeiling` (target × 1.1), `excessNotFullyAbsorbed` (>50 kcal AND >target × 1.02 — escondido na UI por redundância com ceiling)
+
+**Feature além do V1:**
+- `excludedFutureMealIds: Set<string>` opcional no input — caller (review sheet) passa as futuras que user desmarcou; engine não propaga pra elas, share vira residualExcess.
+
+**Tipos genéricos** (sem dependência do schema):
+- `SubstitutionInput`, `SubstitutionResult`, `SubstitutionMeal`, `SubstitutionItem`, etc. em `types.ts`
+- `ActiveAdjustment` interface estrutural (option_id + qty) — caller passa Map<slot_id, PlanDayAdjustment> que satisfaz
+
+### Pontos do schema relevantes
+
+**`plan_day_adjustments` (P22 latente):**
+- Constraint UNIQUE atual: `(user_id, adjustment_date, option_item_id)`
+- Ideal seria: `(user_id, adjustment_date, plan_slot_id)`
+- Workaround: hooks fazem DELETE-by-slot antes do INSERT (`useSetAdjustment` + RPC `apply_substitution`)
+- Fix definitivo anotado como P22 — atacar junto com refinamentos do schema futuro
+
+**Heurística B2 vs B6 no banco** (usada pelas triggers cleanup e pelo badge "Ajustado hoje"):
+- `adjusted_quantity_g == option.quantity_g` cadastrada → troca de alternativa (B2) → não conta como ajuste
+- `adjusted_quantity_g != option.quantity_g` cadastrada → ajuste do engine (B6) → conta como ajuste (badge + cleanup ao deletar refeição-alvo)
+
+### Bug histórico encontrado e corrigido durante B5
+
+No engine, eu inicialmente passei `-gap = target.kcal - chosen.kcal` como `kcalToReduce` pra `reduceMealToBudget`, interpretando como "espaço pros items". Errado: era "cut amount" (`chosen.kcal`). Resultado errado: cortava ~63% da refeição mesmo pra chosen pequeno (10% das kcal). Fix: passar `chosen.kcal` direto. Captured pelo teste 8 (whole-units com ovos) que esperava 3 ovos e estava recebendo 1. Comentário no engine documenta o gotcha.
+
+### Pendências resolvidas durante a fase
+
+- **P12** (`user_food_prefs.use_count` não incrementa) — RESOLVIDO B3 via RPC `bump_food_use`
+- **P16** (`activate_meal_plan` usa CURRENT_DATE UTC) — RESOLVIDO B1.5 via migration
+
+### Pendências adicionadas durante a fase
+
+- **P20** — Clonar plano (`/planos` ação)
+- **P21** — Primeiro plano criado vira ativo automaticamente
+- **P22** — UNIQUE em `plan_day_adjustments.option_item_id` deveria ser em `plan_slot_id`
+- **P23** — Ajuste automático ao desmarcar item no commit sheet
+- **P24** — Comparison "Esperado vs Comido" pra dias passados (hoje é só hoje)
+- **P25** — Calendário de aderência no /profile (gamification)
+
+### Notas pro próximo Claude
+
+1. **Engine é função pura** em `src/features/substitution/lib/engine.ts`. 17 testes em `engine.test.ts`. Mexer no engine = obrigatório rodar `bun run test` antes de commitar.
+
+2. **UI de substituição vive em `src/features/substitution/components/`:**
+   - `substitution-flow.tsx` — controller dos 3 steps + conversão PlanTreeMealRaw → SubstitutionMeal + payload builder
+   - `substitution-food-step.tsx` — picker + qty (sheet com 2 sub-views)
+   - `substitution-review-sheet.tsx` — diff visual + warnings + checkboxes "Compensar em X"
+   - `substitution-commit-sheet.tsx` — commit final stacked com chosen badge "Alimento novo"
+
+3. **Caller principal:** `src/features/plans/routes/plano.tsx` instancia `<SubstitutionFlow>` em overlay quando user clica "Quero comer outra coisa" na ProximaRefeicaoCard.
+
+4. **Lógica do badge "Ajustado hoje"** (em plano.tsx, `mealsAdjustedToday`):
+   - Disparo 1: refeição registrada com slot do plano não coberto por entry (= desmarcou)
+   - Disparo 2: entry off-plan presente (= chosen do B6)
+   - Disparo 3: adjustment cuja qty difere da cadastrada (= propagação do engine)
+   - **NÃO dispara** pra B2 (troca de alternativa — qty == cadastrada)
+
+5. **Mutations no parent (Regra 14):** `useSetAdjustment`, `useClearAdjustment`, `useAddEntries`, `useApplySubstitution` todas vivem em `plano.tsx`. Cards/sheets recebem callbacks como props.
+
+6. **Macros helpers** em `src/features/plans/lib/option-macros.ts`:
+   - `primaryOption(slot)` — alternativa principal (sort_order=0)
+   - `optionMacros(option)` — macros da option a partir do item[0]
+   - `mealTotals(slots)` — totais da refeição (primárias)
+   - `mealTotalsDraft(slots)` — versão pra editor (SlotDraft)
+   - `planTotalsDraft(meals)` — total de todas as refeições do editor
+   - `foodMacrosAtQty(food, qty)` — escalar food
+   - `activeOptionInSlot(slot, adjustment)` — opção ativa via overlay
+   - `activeMealTotals(slots, adjustments)` — usa qty AJUSTADA (do adjustment se há) — pra ProximaRefeicaoCard e MealCommitSheet
+   - `mealTotalsExpected(slots, adjustments)` — usa qty CADASTRADA (ignora ajustes do engine) — pra Home "Esperado plano"
+
+7. **Cache invalidation** após mutations que mexem em adjustments:
+   - `useSetAdjustment` / `useClearAdjustment`: invalidam `planKeys.adjustments(date)`
+   - `useApplySubstitution`: invalida `planKeys.all` + `logKeys.daily(date)`
+   - `useDeleteMeal` / `useDeleteEntry`: invalidam `logKeys.daily(date)` + `planKeys.adjustments(date)` (B6.1 fix)
+   - `useActivatePlan`: invalida `planKeys.all` + `logKeys.daily(date)`
+
+---
+
+## 12. ANTI-PADRÕES OBSERVADOS (PRA NÃO REPETIR)
 
 ### A1. Chutar antes de pesquisar
 
@@ -1869,7 +2041,7 @@ resolve.
 
 ---
 
-## 12. PENDÊNCIAS ABERTAS (prioridade alta primeiro)
+## 13. PENDÊNCIAS ABERTAS (prioridade alta primeiro)
 
 ### P1 — Open Food Facts: integração via Edge Function (alta)
 
@@ -2199,275 +2371,167 @@ Atacar quando Ricardo pedir ou antes da publicação.
 
 ---
 
-## 13. PRÓXIMA FASE — FASE 6 DO PROJETO (Motor de Substituição)
+## 14. PRÓXIMA FASE — FASE 7 DO PROJETO (Pré-publicação)
 
 ### Visão geral
 
-Fase 6 conecta os 3 mundos já construídos:
-- **Plano ativo** (Fase 5): "o que está planejado pra hoje"
-- **Diário** (Fase 4): "o que foi consumido hoje" (`log_entries`)
-- **Ajustes pontuais** (schema do V1 já tem): "troquei a alternativa
-  hoje sem alterar o plano" (`plan_day_adjustments`)
+Fase 7 prepara o app pra publicação — Play Store + App Store via Capacitor
+(decisão de 2026-05-13, ver memória `project_native_only.md`). Trata
+pendências P** que bloqueiam ou degradam a experiência de produção:
+recuperar senha, email confirmation, rota 404, otimização de bundle,
+warnings do console.
 
-E entrega a **funcionalidade-chave do app**: trocar um alimento planejado
-por uma alternativa de forma fluida, com sugestões protein-aware quando
-relevante, e registrar o que foi comido sem precisar configurar tudo manualmente.
+**Não inclui Capacitor empacotamento** — esse é um marco subsequente
+("Fase 8 — Capacitor Wrap"). Fase 7 deixa a web em estado de "pronto
+pra produção" + algumas melhorias gerais. Ricardo decidiu (fim da
+Fase 6) atacar essas pendências **antes** do Capacitor.
 
-⚠️ **Renumeração:** "Fase 6 do projeto" == o que blueprint chamava de
-"Parte 8 / Fase 5 — Motor de Substituição". Mantemos STATUS-numbering.
+### Plano de blocos (esboço — refinar com Ricardo no setup)
 
-### O que muda visualmente
+**B1 — Reset de senha (P4)** (S/M)
 
-**Tab "Plano" (`/plano`) ganha:**
-- "Próxima refeição" destacada (card maior, próxima por horário)
-- Botão "Quero comer outra coisa" em cada alimento → escolhe alternativa
-- Botão "Registrar esta refeição" → cria entries no diário a partir da
-  alternativa atualmente selecionada
-- "Saltei essa refeição" (strikethrough opcional)
+Sub-fase 1.1 do blueprint nunca foi feita. Primeira pessoa que esquecer
+a senha fica trancada. Implementação:
+- Rota `/forgot-password` — form com email; chama `supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/reset-password' })`
+- Rota `/reset-password` — captura token via URL hash; form com nova senha; chama `supabase.auth.updateUser({ password })`
+- Link "Esqueci minha senha" no LoginPage
+- Toast de sucesso/erro
 
-**Tab "Hoje" (`/`) — MealCard ganha:**
-- 2ª linha condicional (só pra refeições do plano):
-  - "Esperado plano: 489 kcal · 27P · 55C · 18G" (cinza)
-  - "Comido agora: 489 kcal ◎ · 27P ◎ · 55C ◎ · 18G ◎" (com ícone target
-    por macro: verde dentro ±5%, âmbar acima, vermelho abaixo, Circle quando 0)
-- Visual mockup detalhado em `memory/project_v1_visual_reference.md`
+⚠️ **Capacitor caveat:** `window.location.origin` vira `capacitor://localhost` no app nativo. Pra V2 deixar como está (web) e migrar pra deep link na Fase Capacitor (P7 no STATUS antigo virou obsoleto).
 
-### Modelo de dados (tabela `plan_day_adjustments`)
+**B2 — Email confirmation + JWT longevity (P8)** (S)
 
-Tabela existe no banco mas nunca foi usada. Schema (do §4):
+- Ligar "Confirm email" no dashboard Supabase Auth (config-only)
+- Decidir sobre JWT longevity (atual 1h padrão Supabase) — esticar pra 24h ou 7 dias antes da publicação. Discutir antes (Capacitor + sessão longa fazem mais sentido)
+- Email templates: revisar copy ("Confirme seu email no NutriPlan...") — Supabase tem template editável no dashboard
 
-```sql
-plan_day_adjustments (
-  id uuid PK,
-  user_id uuid FK,
-  adjustment_date date,
-  plan_id, plan_meal_id, plan_slot_id,
-  plan_option_id, option_item_id uuid (all NOT NULL),
-  adjusted_quantity_g numeric CHECK >= 0,
-  UNIQUE(user_id, adjustment_date, option_item_id)
-)
-```
+⚠️ Apple/Google podem exigir email confirmation pra apps que coletam dados pessoais. Confirmar pesquisa antes de publicar.
 
-Semântica: "no dia X, dentro do slot Y do plano ativo, o user trocou pra
-alternativa Z em vez da principal". A constraint UNIQUE garante 1 ajuste
-por slot por dia.
+**B3 — Rota 404 explícita (P11)** (XS)
 
-Triggers já existentes (do V1 migrados):
-- `cleanup_plan_day_adjustments_on_entry_delete` — limpa adjustments
-  quando user deleta entry off-plan
-- `cleanup_plan_day_adjustments_on_meal_delete` — limpa quando deleta
-  meal inteira
+Hoje React Router v6 sem catch-all mostra página em branco em rotas
+inexistentes. Adicionar `<Route path="*">` com componente `NotFound`
+simples: ícone + mensagem + botão "Voltar pra Home".
 
-### 3-tier overlay (o conceito central)
+Bloco curto, ~30 linhas.
 
-Pra renderizar "o que comer agora" no `/plano`, o B6 precisa combinar
-3 fontes em ordem de prevalência:
+**B4 — Code splitting por rota (P2)** (M)
 
-1. **`log_entries` de hoje** (mais alta prioridade) — se o user já
-   logou no diário, mostra o que ele comeu (não o planejado)
-2. **`plan_day_adjustments` de hoje** — se ainda não comeu mas trocou
-   pra alternativa, mostra a alternativa escolhida
-3. **Plano puro** (`get_plan_tree`) — fallback se nem comeu nem trocou:
-   mostra a alternativa principal de cada slot
+Bundle atual: 819 KB raw / 225 KB gzip. Acima do warning padrão Vite
+(500 KB). Em Capacitor isso não importa (bundle embutido no app), mas
+pra web vale economizar primeiro load.
 
-Esse merge tem que rodar client-side (3 queries combinadas) ou via uma
-RPC nova `get_plan_for_date(p_date date) → jsonb` que faz o join no
-banco. Decisão pendente — discutir com Ricardo no setup.
+Implementação:
+- `React.lazy()` + `Suspense` em cada rota não-essencial em `App.tsx`
+- Bundle inicial deve cair pra ~80-100 KB gzip (só o essencial pra abrir o app + tela inicial)
+- Cada rota baixa seu chunk on-demand
+- Trade-off: ~100ms delay primeira vez que user navega pra rota nova — imperceptível
 
-### Plano de blocos (esboço — 5-7 blocos, refinar com Ricardo)
+**B5 — React Router v7 warnings (P3)** (XS)
 
-**B1 — Mostrar "Próxima refeição" + estado por refeição** (M)
+Console mostra:
+- `v7_startTransition`
+- `v7_relativeSplatPath`
 
-🆕 Estados visuais por refeição em `/plano`:
-- Antes do horário: "Próxima refeição" (destaque)
-- Já passou + sem entries: estado pendente (?)
-- Já passou + com entries: "Comida" (check verde?)
+Silenciáveis com flags no `<BrowserRouter>`. Inofensivos, mas limpam console — útil pra debugar problemas reais depois.
 
-🆕 Sort + filtro client-side baseado em hora atual BR.
+**B6 (opcional) — Refinements menores**
 
-**B2 — `plan_day_adjustments` hooks + "Quero comer outra coisa"** (M)
+- **P5** (`forwardRef` deprecation em React 19) — refactor de `radio-group` e `progress` quando bater warning real
+- **P9** (transação no onboarding) — atomizar UPDATE profile + INSERT weight_log quando virar caso
+- **P10** (MacroEditor em onboarding/components) — refactor pra `@/components/`
+- **P13** (drift de macros em modo %) — investigar via SQL primeiro
+- **P19** (tolerância a typo na busca) — combinar tokenização com trigram similarity
 
-🆕 Novos:
-- `useDayAdjustments(dateISO)` — SELECT por user + data
-- `useSetAdjustment(slotId, optionId, qty)` — INSERT/UPDATE com onConflict
-- `useClearAdjustment(adjustmentId)` — DELETE
-- Botão no `plan-meal-readonly` que abre sheet pra escolher alternativa
-- Sheet recebe lista de alternativas do slot, user clica, vira o "ativo"
+Discutir prioridade com Ricardo no setup.
 
-**B3 — 3-tier overlay no `/plano`** (L)
+### Coisas a confirmar antes de começar a Fase 7
 
-Combinar tree do plano + adjustments + entries. Render "ativa" reflete:
-- Se tem entry de hoje no slot → mostra entry (não planejado)
-- Senão se tem adjustment → mostra alternativa escolhida
-- Senão → mostra alternativa principal do plano
+**1. Ordem dos blocos.** Recomendo B1 (reset senha) primeiro — único bloqueador real pra usuários atuais (qualquer um pode esquecer a senha). B3 é trivial (XS) e pode rolar em paralelo. B2 + B4 + B5 são preparativos pra produção mas não bloqueiam uso.
 
-🆕 Hook combinador `useTodayMealView()`.
+**2. JWT longevity** (P8) — manter 1h ou esticar pra 7 dias? Discutir trade-off de segurança vs UX (mobile espera "sessão sempre logada"). Recomendo 7 dias pré-publicação, 1h só em ambiente de dev.
 
-**B4 — "Registrar esta refeição" em `/plano`** (M)
+**3. Email confirmation** (P8) — ligar agora ou só antes de submeter pras stores? Recomendo testar com email confirmation desligado em dev (atual) e ligar na branch de produção quando preparar o submission package.
 
-🆕 Botão no card de cada refeição. Cria N `log_entries` (uma por
-alimento da refeição) a partir da alternativa "ativa" no momento.
-Reusa `useAddEntry` da Fase 4 (provavelmente refactor pra batch).
-
-⚠️ Considerar P12 (bump_food_use RPC) — pode entrar aqui.
-
-**B5 — Esperado vs Comido no MealCard da Home** (M)
-
-📝 Editado:
-- `src/features/log/components/meal-card.tsx` — adicionar 2ª linha
-  condicional (só pra log_meal com plan_meal_id != null)
-- Computar "esperado" do plano (alternativa ativa) vs "comido" das entries
-
-Visual em `memory/project_v1_visual_reference.md`. Ícones target:
-verde/âmbar/vermelho/Circle por macro.
-
-**B6 — Polish: skipped items + outros estados** (S/M)
-
-Strikethrough em alternativas saltadas. Estado "saltei essa refeição"
-(sem entries + adjustment "skip" especial?). Discutir antes.
-
-**B7 (opcional) — Motor protein-aware** (L)
-
-Quando user clica "Quero comer outra coisa", sugerir alternativas
-com macros similares (proteína em primeiro). Ajustar qty automaticamente
-pra manter macros do slot ~iguais ao planejado.
-
-Algoritmo:
-- Pegar macros da alternativa atual: `kcal_a, p_a, c_a, g_a`
-- Pra cada alternativa, calcular qty que daria proteína igual:
-  `qty_alt = (p_a / alt.protein_per_100g) * 100`
-- Mostrar com kcal/macros resultantes. User pode ajustar.
-
-Esse é o "ouro" do app — diferencia de MyFitnessPal/outros. Mas dá pra
-fazer com qty fixa primeiro (B2-B4) e ligar protein-aware depois.
-
-### Coisas necessárias antes de começar a Fase 6
-
-**1. Confirmar schema de `plan_day_adjustments`** — vide §4. Particular:
-- ON DELETE de `plan_id` etc. → quando deleta plano, adjustments somem?
-- O que acontece quando user troca de plano ativo no meio do dia?
-- Triggers existentes podem afetar (ver §2 Triggers)
-
-**2. Decidir merge 3-tier client-side ou via RPC nova `get_plan_for_date`.**
-
-Opção A (client-side): 3 queries em paralelo + merge no hook. Mais
-flexível. Custo: lógica complexa no front.
-
-Opção B (RPC): 1 chamada, merge no SQL. Performance melhor. Custo:
-mais SQL a manter, refactor depois se modelo evoluir.
-
-Recomendo **A** pra B1-B3, refatorar pra **B** depois se virar gargalo.
-
-**3. Decidir UX da "Próxima refeição"**
-
-- Card maior visualmente vs label "Próxima ←" discreta?
-- Como tratar quando tudo já passou (fim de dia)?
-
-Mockup antes de codar B1.
-
-**4. Decidir tratamento de "registrar refeição" quando há ajustes/edits**
-
-Cenários:
-- Já tem entries do user diferentes do plano → desabilitar botão?
-- User logou 50g (esperado 100g) → "Registrar refeição" preenche os outros foods do slot?
-
-Discutir no setup do B4.
-
-### Decisões pendentes pra Ricardo na Fase 6
-
-- **3-tier merge:** client-side ou RPC nova? (recomendo client primeiro)
-- **"Próxima refeição":** card grande ou só label discreto?
-- **Saltei refeição:** estado especial ou só "ignorar"?
-- **Protein-aware:** entra como B7 separado ou polish no B2?
-- **Visual do MealCard com "Esperado/Comido":** revalidar referência em
-  `memory/project_v1_visual_reference.md`
+**4. Code splitting** (P2) — atacar agora (Fase 7) ou só na Fase Capacitor? Atacar agora porque (a) web continua sendo a primeira porta de entrada, (b) entender o bundle ajuda decisões futuras de imports.
 
 ### Estimativa
 
-5-7 blocos. Estimativa 10-15 dias dado o padrão de validação manual do
-Ricardo + complexidade do 3-tier merge e do motor protein-aware. B3
-(merge 3-tier) e B7 (protein-aware) são os mais densos — podem virar
-dois blocos cada.
+5-7 blocos pequenos. B1 e B4 são os mais densos. Resto é XS-S. Sem
+prazo (filosofia Ricardo) — atacar com qualidade.
 
-### Pendências secundárias pra atacar paralelo/dentro da Fase 6
+### Outras pendências fora da Fase 7 (pra discutir caso a caso)
 
-- **P12** (bump_food_use RPC) — entra naturalmente no B4 (registrar refeição)
-- **P16** (timezone do activate_meal_plan) — se virar dor real, fix de 1 migration
-- **P18** ("Trocar alimento" no editor de plano) — mesma UX do "Quero comer
-  outra coisa", pode reusar componente
+**P1** (Open Food Facts) — adiada desde a Fase 3. TACO+custom cobrem maioria dos casos. Discutir se entra antes da publicação ou só pós-MVP.
+
+**P6** (Receita composta UI) — feature própria, fase dedicada. Schema já existe no banco. Discutir prioridade — pode ser que muitos users queiram criar receitas.
+
+**P15** (Profile change não atualiza target snapshot de hoje) — ADIADO pra pós-MVP. Impacto pequeno. Decidir pré-publicação.
+
+**P17** (Save de plano sem transação real) — risco baixo. Considerar RPC `save_plan` se virar dor.
+
+**P18** (Trocar alimento em alternativa existente no editor) — UX nice-to-have. Atacar quando Ricardo pedir.
+
+**P20-P25** (novas da Fase 6) — features incrementais. Discutir caso a caso.
 
 ---
 
-## 14. FORMATO DE INÍCIO DO PRÓXIMO CHAT
+## 15. FORMATO DE INÍCIO DO PRÓXIMO CHAT
 
 Ricardo vai abrir chat novo com algo tipo:
 
-> "Lê STATUS.md inteiro, especialmente as regras. Vamos começar a Fase 6."
+> "Lê STATUS.md inteiro, especialmente as regras. Vamos começar a Fase 7."
 
 **Resposta esperada:**
 
 1. Ler STATUS inteiro de fato (não pular pras regras)
 2. Aplicar Regra 13: rodar `Get-Content C:\projetos\nutriplan-v2\package.json -Encoding UTF8`
    pra confirmar versões reais antes de propor qualquer coisa
-3. Confirmar contexto: "Fase 6 = Motor de Substituição. Estado atual:
-   commit `d9a1a6b`. Fase 5 fechada com planos alimentares funcionais.
-   Tabela `plan_day_adjustments` existe no banco mas nunca foi usada.
-   Modelo da UI é Alimento + Alternativa (não Slot/Option/Item)."
-4. **Propor escopo da Fase 6** — relembrar o plano de 5-7 blocos da §13,
-   pedir confirmação ou ajuste
-5. **Listar decisões pendentes** (§13 "Decisões pendentes pra Ricardo na
-   Fase 6") e perguntar
-6. **Pedir SQL pra confirmar schema de `plan_day_adjustments`** antes de
-   codar B1 — particularmente o ON DELETE das FKs:
-
-   ```sql
-   SELECT column_name, data_type, is_nullable
-   FROM information_schema.columns
-   WHERE table_schema='public' AND table_name='plan_day_adjustments'
-   ORDER BY ordinal_position;
-
-   SELECT tc.constraint_name, kcu.column_name,
-          rc.delete_rule, ccu.table_name AS referenced_table
-   FROM information_schema.table_constraints tc
-     JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-     JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
-     JOIN information_schema.constraint_column_usage ccu ON rc.unique_constraint_name = ccu.constraint_name
-   WHERE tc.table_name = 'plan_day_adjustments' AND tc.constraint_type = 'FOREIGN KEY';
-   ```
-
-7. **Ler `memory/project_v1_visual_reference.md`** — tem mockup detalhado
-   do MealCard com "Esperado plano: ... · Comido agora: ..." (B5 da Fase 6)
-8. Não codar até ter respostas
+3. Confirmar contexto: "Fase 7 = Pré-publicação. Estado atual: commit
+   `6be7fa9`. Fase 6 fechada com motor de substituição completo +
+   2 pendências históricas resolvidas (P12, P16). Próximos blocos:
+   reset de senha, email confirmation, rota 404, code splitting,
+   React Router warnings."
+4. **Ler memórias** `MEMORY.md` no diretório `C:\Users\ricar\.claude\projects\C--projetos-nutriplan-v2\memory\` — especialmente:
+   - `feedback_no_deadlines.md` (sem tempo como custo)
+   - `feedback_explain_tradeoffs.md` (Regra 1B)
+   - `project_native_only.md` (decisão Capacitor)
+   - `project_plano_vs_home_philosophy.md` (filosofia geral)
+5. **Propor escopo da Fase 7** — relembrar o plano de blocos da §14,
+   pedir confirmação ou ajuste de ordem
+6. **Decisões pendentes pra Ricardo na Fase 7:**
+   - JWT longevity: 1h ou 7 dias?
+   - Email confirmation: ligar agora ou só pré-submissão pras stores?
+   - Code splitting: agora ou na Fase Capacitor?
+   - Ordem dos blocos (default sugerido: B1 → B3 → B5 → B2 → B4)
+7. Não codar até ter respostas
 
 **Não fazer:**
-- Pular pra "vou criar a RPC" sem verificar `database.ts` (Regra 13)
-- Assumir UX da "Próxima refeição" sem mockup (B1 questão aberta)
-- Implementar protein-aware (B7) sem alinhar algoritmo com Ricardo primeiro
-- Misturar substituição (`plan_day_adjustments`) com edição do plano
-  (`/planos/:id/editar`) — são fluxos diferentes
-- Codar componentes antes de Ricardo aprovar escopo
+- Pular pra "vou criar a rota" sem verificar `database.ts` e `package.json` (Regra 13)
+- Assumir caminho de Capacitor sem aprovação explícita — está como fase POSTERIOR (Fase 8)
+- Mexer em código de produção (main) sem antes garantir branch isolada
+- Codar antes de Ricardo aprovar escopo
 
 ### Memórias persistentes do projeto
 
 Pra contexto extra além deste STATUS, o memory file
 `C:\Users\ricar\.claude\projects\C--projetos-nutriplan-v2\memory\MEMORY.md`
-indexa 5 memórias:
+indexa as memórias salvas. Principais (revisar no início de cada chat):
 
-1. **feedback_explain_tradeoffs.md** — sempre explicar trade-offs nas decisões
-2. **project_native_only.md** — app native iOS+Android via Capacitor
-3. **project_rpcs_already_exist.md** — RPCs do blueprint marcadas como
-   "por migrar" já existem
-4. **project_v1_visual_reference.md** — layout-alvo do diário V1
-5. **project_pendings_phase4.md** — pendências descobertas na Fase 4
+1. **feedback_explain_tradeoffs.md** — sempre explicar trade-offs nas decisões (Regra 1B)
+2. **feedback_no_deadlines.md** — sem prazos; foco em risco e dívida
+3. **project_native_only.md** — app native iOS+Android via Capacitor (sem PWA)
+4. **project_rpcs_already_exist.md** — RPCs do blueprint marcadas como "por migrar" já existem
+5. **project_v1_visual_reference.md** — layout-alvo do diário V1
+6. **project_pendings_phase4.md** — pendências descobertas na Fase 4
+7. **project_plano_vs_home_philosophy.md** — filosofia Plano vs Home + engine com propagação protein-aware (atualizada na Fase 6)
 
-Esses arquivos têm informação que NÃO está duplicada aqui (especialmente
-o `project_v1_visual_reference.md` que tem o layout-alvo detalhado de
-MealCard com "Esperado/Comido", bottom nav exato, etc.). Próximo Claude:
+Esses arquivos têm informação que NÃO está duplicada aqui. Próximo Claude:
 ler pelo menos `MEMORY.md` no início pra saber o que existe.
 
 ---
 
-## 15. APÊNDICE A — Comandos PowerShell úteis pra inspeção
+## 16. APÊNDICE A — Comandos PowerShell úteis pra inspeção
 
 ```powershell
 # Estrutura do projeto
@@ -2522,7 +2586,7 @@ ou role autenticada do dashboard pra contornar.** Aprendido na Fase 4 B1.
 
 ---
 
-## 16. APÊNDICE B — Padrão de entrega de bloco (template)
+## 17. APÊNDICE B — Padrão de entrega de bloco (template)
 
 Estrutura ideal de mensagem ao final de um bloco de trabalho:
 
@@ -2566,7 +2630,7 @@ git log --oneline -3
 
 ---
 
-## 17. APÊNDICE C — Mapa de arquivos críticos por feature
+## 18. APÊNDICE C — Mapa de arquivos críticos por feature
 
 Pra próximo Claude se orientar rápido sem ler tudo:
 
